@@ -1,0 +1,263 @@
+import { normalizeName, RARITIES } from './model.ts';
+import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
+
+export interface ScryfallCard {
+  id: string; oracle_id?: string; name: string; set: string; set_name?: string; released_at?: string; collector_number: string;
+  type_line: string; oracle_text?: string; mana_cost?: string; color_identity: string[];
+  legalities?: Record<string, string>;
+  artist?: string; power?: string; toughness?: string; edhrec_rank?: number; cmc?: number; colors?: string[]; rarity?: string; prices?: { usd?: string | null; usd_foil?: string | null };
+  image_uris?: { normal: string; small: string };
+  card_faces?: { name: string; colors?: string[]; oracle_text?: string; mana_cost?: string; image_uris?: { normal: string; small: string } }[];
+}
+export interface ScryfallSet { code: string; name: string; released_at?: string }
+export interface SearchResult { data: ScryfallCard[]; total_cards: number; has_more: boolean; next_page?: string }
+export interface SearchFilters {
+  name: string; type: string; typeMode: 'all' | 'any'; excludeType: string; oracle: string;
+  colors: string; colorMode: '<=' | '>=' | '='; identity: string; identityMode: '<=' | '>=' | '=';
+  manaCost: string; manaValue: string; power: string; toughness: string; loyalty: string;
+  rarity: string; sets: string; block: string; legalFormat: string; legality: 'legal' | 'banned' | 'restricted';
+  artist: string; flavor: string; language: string; game: string; border: string;
+  normalOnly: boolean; includeTokens: boolean;
+  releasedAfter: string; releasedBefore: string; price: string; currency: 'usd' | 'eur' | 'tix';
+}
+export const emptyFilters = (): SearchFilters => ({ name: '', type: '', typeMode: 'all', excludeType: '', oracle: '', colors: '', colorMode: '<=', identity: '', identityMode: '<=', manaCost: '', manaValue: '', power: '', toughness: '', loyalty: '', rarity: '', sets: '', block: '', legalFormat: '', legality: 'legal', artist: '', flavor: '', language: '', game: '', border: '', releasedAfter: '', releasedBefore: '', price: '', currency: 'usd', normalOnly: true, includeTokens: false });
+export const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+export function rulesTextTerms(value: string): string[] {
+  if (!/[",]/.test(value)) return value.trim() ? [value.trim()] : [];
+  const terms: string[] = [];
+  let buffer = '', quoted = false;
+  const flush = () => { if (buffer.trim()) terms.push(buffer.trim()); buffer = ''; };
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (char === '\\' && quoted && i + 1 < value.length) { buffer += value[++i]; continue; }
+    if (char === '"') { flush(); quoted = !quoted; continue; }
+    if (char === ',' && !quoted) { flush(); continue; }
+    buffer += char;
+  }
+  if (quoted) throw new Error('Close each quoted rules-text phrase.');
+  flush(); return terms;
+}
+
+export function buildSearchQuery(query: string, filters: SearchFilters, format?: Format): string {
+  const parts: string[] = query.trim() ? [`(${query.trim()})`] : [];
+  if (filters.name.trim()) parts.push(`name:${quote(filters.name.trim())}`);
+  if (filters.type.trim()) parts.push(`(${filters.type.trim().split(/\s+/).map(t => `t:${quote(t)}`).join(filters.typeMode === 'any' ? ' or ' : ' ')})`);
+  if (filters.excludeType.trim()) parts.push(...filters.excludeType.trim().split(/\s+/).map(t => `-t:${quote(t)}`));
+  parts.push(...rulesTextTerms(filters.oracle).map(term => `o:${quote(term)}`));
+  if (!filters.includeTokens) parts.push('-t:token');
+  if (filters.normalOnly || !format?.whitelistOnly && format?.normalOnly) parts.push(`(legal:vintage or restricted:vintage${filters.includeTokens && (!format?.normalOnly || format.whitelistOnly) ? ' or t:token' : ''})`);
+  if (filters.colors) parts.push(`c${filters.colorMode}${filters.colors}`);
+  if (filters.identity) parts.push(`ci${filters.identityMode}${filters.identity}`);
+  if (filters.manaCost.trim()) parts.push(`mana:${quote(filters.manaCost.trim())}`);
+  for (const [label, key, value] of [['Mana value', 'mv', filters.manaValue], ['Power', 'pow', filters.power], ['Toughness', 'tou', filters.toughness], ['Loyalty', 'loy', filters.loyalty], ['Price', filters.currency, filters.price]]) {
+    if (!value.trim()) continue;
+    if (!/^(?:<=|>=|=|<|>)?-?\d+(?:\.\d+)?$/.test(value.trim())) throw new Error(`${label} must be a number, optionally with <, <=, =, >=, or >.`);
+    parts.push(`${key}${/^[<>=]/.test(value.trim()) ? value.trim() : `=${value.trim()}`}`);
+  }
+  if (filters.rarity) parts.push(`r:${filters.rarity}`);
+  const codes = filters.sets.split(/[\s,]+/).filter(Boolean).map(c => c.toLowerCase());
+  if (codes.some(c => !/^[a-z0-9]{2,8}$/.test(c))) throw new Error('Enter set codes separated by spaces or commas.');
+  if (codes.length) parts.push(`(${codes.map(c => `set:${c}`).join(' or ')})`);
+  if (filters.block.trim()) {
+    if (!/^[a-z0-9]{2,8}$/i.test(filters.block.trim())) throw new Error('Enter a set code for the block.');
+    parts.push(`block:${filters.block.trim().toLowerCase()}`);
+  }
+  if (filters.legalFormat) parts.push(`${filters.legality}:${filters.legalFormat}`);
+  if (filters.artist.trim()) parts.push(`artist:${quote(filters.artist.trim())}`);
+  if (filters.flavor.trim()) parts.push(`flavor:${quote(filters.flavor.trim())}`);
+  if (filters.language) parts.push(`lang:${filters.language}`);
+  if (filters.game) parts.push(`game:${filters.game}`);
+  if (filters.border) parts.push(`border:${filters.border}`);
+  for (const [operator, date] of [['>=', filters.releasedAfter], ['<=', filters.releasedBefore]]) {
+    if (!date) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('Enter a valid release date.');
+    parts.push(`date${operator}${date}`);
+  }
+  if (!format?.whitelistOnly && !format?.eternal && format?.allowedSets.length) parts.push(`(${format.allowedSets.map(c => `set:${c}`).join(' or ')})`);
+  // Exact-name bans are applied to returned cards, not embedded in Scryfall's
+  // grammar. Names and punctuation must never break a format's API query.
+  if (!format?.whitelistOnly && format?.bannedRarities?.length) {
+    const allowed = RARITIES.filter(r => !format.bannedRarities!.includes(r));
+    parts.push(allowed.length ? `(${allowed.map(r => `in:${r}`).join(' or ')})` : 'mv<0');
+  }
+  if (format?.bannedTypes) parts.push(...format.bannedTypes.map(type => `-t:${quote(type)}`));
+  // The API requires a nonempty query. This name regex matches every card.
+  return parts.join(' ') || 'name:/.*/';
+}
+
+// All API callers share a queue; UI changes are debounced before requesting.
+let tail: Promise<unknown> = Promise.resolve();
+let lastRequest = 0;
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
+async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const endpoint = new URL(url);
+  if (endpoint.origin !== 'https://api.scryfall.com') throw new Error('Invalid Scryfall endpoint.');
+  const job = tail.catch(() => {}).then(async () => {
+    await pause(Math.max(0, 125 - (Date.now() - lastRequest)));
+    signal?.throwIfAborted();
+    lastRequest = Date.now();
+    const controller = new AbortController();
+    const cancel = () => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', cancel, { once: true });
+    const timer = setTimeout(() => controller.abort(new Error('Scryfall timed out. Try again.')), 15000);
+    try {
+      const response = await fetch(endpoint, { signal: controller.signal, headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!response.ok) throw new ApiError(data.details || (response.status === 429 ? 'Scryfall is busy. Wait a moment and retry.' : 'Scryfall request failed.'), response.status);
+      return data as T;
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason;
+      if (error instanceof ApiError) throw error;
+      throw new Error('Could not reach Scryfall. Check your connection and try again.');
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
+  });
+  tail = job;
+  return job;
+}
+const searchCache = new Map<string, { at: number; data: SearchResult }>();
+export interface SearchOptions { unique?: 'cards' | 'art' | 'prints'; direction?: 'auto' | 'asc' | 'desc'; extras?: boolean }
+export async function searchCards(query: string, order = 'name', signal?: AbortSignal, next?: string, options: SearchOptions = {}): Promise<SearchResult> {
+  const url = next ?? `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: query.trim() || 'name:/.*/', unique: options.unique ?? 'cards', order, dir: options.direction ?? 'auto', include_extras: String(options.extras ?? true) })}`;
+  const cached = searchCache.get(url);
+  if (cached && Date.now() - cached.at < 600000) return cached.data;
+  let data: SearchResult;
+  try { data = await request<SearchResult>(url, signal); }
+  catch (error) { if (error instanceof ApiError && error.status === 404) data = { data: [], total_cards: 0, has_more: false }; else throw error; }
+  if (searchCache.size >= 100) searchCache.delete(searchCache.keys().next().value!);
+  searchCache.set(url, { at: Date.now(), data });
+  return data;
+}
+let setCache: Promise<ScryfallSet[]> | undefined;
+export function loadSets(): Promise<ScryfallSet[]> {
+  return setCache ??= request<{ data: ScryfallSet[] }>('https://api.scryfall.com/sets').then(list => list.data.sort((a, b) => (b.released_at ?? '').localeCompare(a.released_at ?? ''))).catch(error => { setCache = undefined; throw error; });
+}
+export function cardInfo(card: ScryfallCard): CardInfo {
+  const rawPrice = card.prices?.usd ?? card.prices?.usd_foil;
+  const price = rawPrice != null ? Number(rawPrice) : null;
+  return { ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
+    image: card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal,
+    backImage: card.card_faces?.[1]?.image_uris?.normal, typeLine: card.type_line,
+    oracleText: card.oracle_text ?? card.card_faces?.map(f => f.oracle_text ?? '').join('\n') ?? '',
+    manaCost: card.mana_cost ?? card.card_faces?.map(f => f.mana_cost ?? '').join(' // ') ?? '', colorIdentity: card.color_identity,
+    manaValue: card.cmc ?? null, colors: card.colors ?? [...new Set(card.card_faces?.flatMap(f => f.colors ?? []) ?? [])], rarity: card.rarity ?? 'unknown', priceUSD: price !== null && Number.isFinite(price) ? price : null };
+}
+const printingCache = new Map<string, Promise<{ printSets: string[]; printRarities: string[] }>>();
+async function printingSets(card: ScryfallCard): Promise<{ printSets: string[]; printRarities: string[] }> {
+  const key = card.oracle_id ?? normalizeName(card.name);
+  let promise = printingCache.get(key);
+  if (!promise) {
+    promise = (async () => {
+      const query = card.oracle_id ? `oracleid:${card.oracle_id}` : `!${quote(card.name)}`;
+      let next: string | undefined = `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: query, unique: 'prints', include_extras: 'true' })}`;
+      const sets = new Set<string>(), rarities = new Set<string>();
+      while (next) {
+        const page: SearchResult = await request<SearchResult>(next);
+        for (const print of page.data) { sets.add(print.set); if (RARITIES.includes(print.rarity as Rarity)) rarities.add(print.rarity!); }
+        next = page.has_more ? page.next_page : undefined;
+      }
+      return { printSets: [...sets], printRarities: [...rarities] };
+    })().catch(error => { printingCache.delete(key); throw error; });
+    if (printingCache.size >= 500) printingCache.delete(printingCache.keys().next().value!);
+    printingCache.set(key, promise);
+  }
+  return promise;
+}
+export async function resolveCard(entry: CardEntry, needsSets: boolean): Promise<CardInfo> {
+  let card: ScryfallCard;
+  if (entry.info?.scryfallId) card = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.scryfallId)}`);
+  else {
+    // Imported printing preferences are honored when that printing matches the card.
+    let preferred: ScryfallCard | undefined;
+    if (entry.info?.set && entry.info.collectorNumber) {
+      try { preferred = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.set)}/${encodeURIComponent(entry.info.collectorNumber)}`); }
+      catch (e) { if (!(e instanceof ApiError && e.status === 404)) throw e; }
+    }
+    card = preferred && (normalizeName(preferred.name) === normalizeName(entry.name) || preferred.card_faces?.some(f => normalizeName(f.name) === normalizeName(entry.name)))
+      ? preferred : await request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: entry.name })}`);
+  }
+  const info = cardInfo(card);
+  return needsSets ? { ...info, ...await printingSets(card), setsComplete: true, checkedAt: new Date().toISOString() } : info;
+}
+
+const editionsCache = new Map<string, Promise<ScryfallCard[]>>();
+export function loadPrintings(name: string, oracleId?: string): Promise<ScryfallCard[]> {
+  const key = oracleId ?? normalizeName(name);
+  let result = editionsCache.get(key);
+  if (!result) {
+    result = (async () => {
+      let next: string | undefined = `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: oracleId ? `oracleid:${oracleId}` : `!${quote(name)}`, unique: 'prints', order: 'released', dir: 'desc', include_extras: 'true' })}`;
+      const cards: ScryfallCard[] = [];
+      while (next) { const page: SearchResult = await request(next); cards.push(...page.data); next = page.has_more ? page.next_page : undefined; }
+      return cards;
+    })().catch(error => { editionsCache.delete(key); throw error; });
+    editionsCache.set(key, result);
+  }
+  return result;
+}
+const oracleCache = new Map<string, { at: number; promise: Promise<CardInfo> }>();
+export function latestOracle(name: string): Promise<CardInfo> {
+  const key = normalizeName(name), cached = oracleCache.get(key);
+  if (cached && Date.now() - cached.at < 3600000) return cached.promise;
+  const promise = request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: name })}`).then(cardInfo).catch(error => { oracleCache.delete(key); throw error; });
+  oracleCache.set(key, { at: Date.now(), promise }); return promise;
+}
+
+export function filterFormatCards(cards: ScryfallCard[], format?: Format): ScryfallCard[] {
+  const banned = new Set(format?.banned.map(normalizeName) ?? []);
+  const allowed = format?.whitelistOnly ? new Set((format.allowedCards ?? []).map(normalizeName)) : undefined;
+  return cards.filter(card => { const names = [card.name, ...card.card_faces?.map(f => f.name) ?? []].map(normalizeName); return !names.some(name => banned.has(name)) && (!allowed || names.some(name => allowed.has(name))); });
+}
+
+export function legalPoolQuery(query: string, names: string[]): string {
+  // Positive fielded name terms are only candidates; exact membership is checked
+  // locally, so names like Opt never admit Optical Optimizer.
+  return `${query} (${names.map(name => `name:${quote(name)}`).join(' or ')})`;
+}
+const legalPoolCache = new Map<string, { at: number; cards: ScryfallCard[] }>();
+export async function searchLegalPool(query: string, format: Format, order = 'name', signal?: AbortSignal, next?: string, options: SearchOptions = {}, onquery?: (query: string) => void): Promise<SearchResult> {
+  const names = [...new Set(format.allowedCards ?? [])];
+  if (!names.length) return { data: [], total_cards: 0, has_more: false };
+  onquery?.(legalPoolQuery(query, names.slice(0, 40)));
+  const key = JSON.stringify([query, names, format.banned, order, options]);
+  let cached = legalPoolCache.get(key);
+  if (!cached || Date.now() - cached.at >= 600000) {
+    const found = new Map<string, ScryfallCard>();
+    for (let i = 0; i < names.length; i += 40) {
+      signal?.throwIfAborted();
+      const candidateQuery = legalPoolQuery(query, names.slice(i, i + 40)); onquery?.(candidateQuery);
+      let page: SearchResult = await searchCards(candidateQuery, order, signal, undefined, options);
+      while (true) {
+        for (const card of filterFormatCards(page.data, format)) found.set(card.id, card);
+        if (!page.has_more || !page.next_page) break;
+        page = await searchCards(candidateQuery, order, signal, page.next_page, options);
+      }
+    }
+    const numeric = (value: unknown) => value == null || value === '' || !Number.isFinite(Number(value)) ? Infinity : Number(value);
+    const sortValue = (card: ScryfallCard): string | number => {
+      switch (order) {
+        case 'cmc': return numeric(card.cmc);
+        case 'usd': return numeric(card.prices?.usd);
+        case 'power': return numeric(card.power);
+        case 'toughness': return numeric(card.toughness);
+        case 'edhrec': return numeric(card.edhrec_rank);
+        case 'released': return card.released_at ?? '';
+        case 'rarity': return RARITIES.indexOf(card.rarity as Rarity);
+        case 'color': return `${card.colors?.length ?? 0}:${card.colors?.join('') ?? ''}`;
+        case 'artist': return card.artist ?? '';
+        case 'set': return card.set;
+        default: return card.name;
+      }
+    };
+    const descending = options.direction === 'desc' || options.direction !== 'asc' && ['released', 'usd', 'rarity', 'power', 'toughness'].includes(order);
+    const cards = [...found.values()].sort((a, b) => { const av = sortValue(a), bv = sortValue(b); if (av === Infinity || bv === Infinity) return av === bv ? a.name.localeCompare(b.name) : av === Infinity ? 1 : -1; const diff = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv)); return (descending ? -diff : diff) || a.name.localeCompare(b.name); });
+    cached = { at: Date.now(), cards }; if (legalPoolCache.size >= 10) legalPoolCache.delete(legalPoolCache.keys().next().value!); legalPoolCache.set(key, cached);
+  }
+  signal?.throwIfAborted();
+  const offset = next && /^legal-page:\d+$/.test(next) ? Number(next.slice(11)) : 0;
+  const hasMore = offset + 150 < cached.cards.length;
+  return { data: cached.cards.slice(offset, offset + 150), total_cards: cached.cards.length, has_more: hasMore, next_page: hasMore ? `legal-page:${offset + 150}` : undefined };
+}

@@ -1,0 +1,20 @@
+<script lang="ts">
+  import { untrack } from 'svelte';
+  import { parseValuedCards, mergeValuedCards } from '../lib/model';
+  import type { ValuedCard } from '../lib/model';
+  import { download } from '../lib/storage';
+  let { cards, kind, defaultValue = 1, onchange, onpending, onpreview }: { cards: ValuedCard[]; kind: 'restricted' | 'pointed'; defaultValue?: number; onchange: (cards: ValuedCard[]) => void; onpending: (pending: boolean) => void; onpreview: (name: string) => void } = $props();
+  let text = $state(''), mode = $state('append'), value = $state(untrack(() => defaultValue)), error = $state(''), listLimit = $state(100);
+  const exported = $derived(cards.map(card => `${card.name} = ${card.value}`).join('\n'));
+  const uid = $props.id();
+  $effect(() => onpending(text.trim().length > 0));
+  function apply() { try { onchange(mergeValuedCards(cards, mode === 'replace' && !text.trim() ? [] : parseValuedCards(text, value, kind === 'restricted' ? 1 : 0), mode === 'replace')); text = ''; error = ''; } catch (e) { error = e instanceof Error ? e.message : 'Could not import cards.'; } }
+  async function load(event: Event) { const field = event.currentTarget as HTMLInputElement, file = field.files?.[0]; if (!file) return; try { if (file.size > 1024 * 1024) throw new Error('Choose a list smaller than 1 MB.'); text = await file.text(); } catch (e) { error = e instanceof Error ? e.message : 'Could not load file.'; } finally { field.value = ''; } }
+  async function copy() { try { await navigator.clipboard.writeText(exported); } catch { error = 'Clipboard unavailable. Select the text or download it.'; } }
+</script>
+<div class="valued-list-editor">
+  {#each cards.slice(0, listLimit) as card (card.name)}<div class="restriction-row rule-card-row"><button type="button" class="rule-card-name" data-card-open={card.name} onclick={() => onpreview(card.name)} aria-label={`View ${card.name}`}>{card.name}</button><label>{kind === 'restricted' ? 'Copies' : 'Points'}<input type="number" min={kind === 'restricted' ? 1 : 0} max="999" value={card.value} required onchange={(e) => { const value = Number(e.currentTarget.value); if (Number.isSafeInteger(value) && value >= (kind === 'restricted' ? 1 : 0) && value <= 999) { onchange(cards.map(c => c.name === card.name ? { ...c, value } : c)); error = ''; } else { e.currentTarget.value = String(card.value); error = 'Enter a valid whole number.'; } }} /></label><button class="quiet danger" type="button" onclick={() => onchange(cards.filter(c => c.name !== card.name))}>Remove</button></div>{/each}
+  {#if cards.length > listLimit}<button type="button" class="quiet" onclick={() => listLimit += 100}>Show more</button>{/if}
+  <details><summary>Import / edit / export</summary><label>Card list<textarea bind:value={text} rows="5" placeholder="Sol Ring = 2&#10;1 Demonic Tutor (UMA) 93"></textarea></label><p class="help">Names or decklists use the default value. Use Card name = value for individual values.</p><div class="transfer-actions"><label>Default {kind === 'restricted' ? 'copy limit' : 'points'}<input type="number" bind:value={value} min={kind === 'restricted' ? 1 : 0} max="999" /></label><select bind:value={mode} aria-label={`${kind} import mode`}><option value="append">Add / update</option><option value="replace">Replace list</option></select><label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={load} /></label><button class="secondary" type="button" onclick={() => { text = exported; mode = 'replace'; }}>Edit current list</button><button type="button" class="primary" onclick={apply}>Apply list</button></div><label class="sr-only" for={`${uid}-export`}>Exported {kind} cards</label><textarea id={`${uid}-export`} readonly value={exported} rows="3"></textarea><div class="transfer-actions"><button class="secondary" type="button" onclick={copy}>Copy</button><button class="secondary" type="button" onclick={() => download(exported, `${kind}-cards.txt`, 'text/plain')}>Download</button></div></details>
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+</div>

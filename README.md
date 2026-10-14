@@ -1,2 +1,110 @@
-# format-forge
-mtg custom-format-aware deck builder
+
+# Format Forge
+
+A Svelte 5 and TypeScript deck builder for custom Magic: The Gathering formats. Decks and formats save to localStorage under `mtg-format-forge.library.v1`. Previous v1 libraries and backups migrate automatically.
+
+## Development
+
+Open this folder in VS Code, select **Dev Containers: Reopen in Container**, then run `npm run dev`. The Node 22 devcontainer installs locked dependencies with `npm ci` and forwards port 5173. Open `http://localhost:5173`.
+
+For host development, use Node 22.12 or newer, run `npm ci`, then `npm run dev`. The app binds to `0.0.0.0` for container port forwarding.
+
+```sh
+npm run check
+npm test
+npm run build
+npm run preview
+```
+
+The preview serves the production build on port 4173. Both ports are forwarded by the devcontainer.
+
+## Deck building
+
+Search and the deck, sideboard, and considering lists stay visible together. Desktop uses a split workspace; phones keep search beside stacked deck sections, with independent scrolling. Click a deck card or search image to open a compact printing image next to updated Oracle text, with set name and rarity. The image stays visible while the right-hand area shows Oracle text and printing controls across the available width. Click outside or press Escape to close, or click another card to switch directly. Double-faced images have a flip control.
+
+Search by card name or enter any [Scryfall query syntax](https://scryfall.com/docs/syntax). Empty searches automatically browse cards without an implicit paper-only filter. The default **Tournament-legal cards only** filter uses the Vintage legal or restricted card pool, keeping restricted cards available without applying Vintage copy limits. Disable it to browse ante, acorn, silver-bordered, or other unusual cards. Tokens are excluded by default; **Options → Include tokens** brings them back. A format eligibility rule still applies while Format card pool is enabled. Changes to filters refresh results after a short debounce. The format card-pool toggle applies allowed sets and eligibility rules. Named bans are filtered locally after results return, so names and punctuation cannot break the API query. For ordinary format searches, the displayed total is the Scryfall total before named bans. The search controls keep the query and pool filters together, with sorting below. Image sizes, token inclusion, special destinations, and manual entry are under Options. Advanced search shows the exact generated query, a copy button, and a Scryfall link.
+
+Advanced controls include type inclusion/exclusion, rules text, arbitrary color combinations and color identity, mana cost/value, power, toughness, loyalty, rarity, sets, blocks, format legality, game, language, border, artist, flavor text, release dates, and prices. Result grouping can show one result per card, one per artwork, or every printing. Sorting supports direction. Results have pagination and compact buttons for adding directly to deck, sideboard, or considering. The destination selector also offers extra card roles. Considering cards are saved but excluded from all format checks.
+
+The **Rules text** field accepts multiple quoted or comma-separated phrases. `"whenever", "draw a card"` becomes `o:"whenever" o:"draw a card"`, so both phrases must match. A phrase containing a comma can remain inside quotes.
+
+Card menus change quantities and move a chosen number of copies between sections. Moving one of four copies leaves three in the source; **Move all** transfers the whole entry. Drag a card name between zones to move one copy; Shift-drag moves all copies. Tiny −/+ buttons adjust copies directly in each row. Card details provide move controls for touch and keyboard use. Search images can be dragged into a zone on desktop to add a card. The card menu remains available for keyboard moves and tagging.
+
+Commander, companion, and conspiracy sections appear only when they contain cards and disappear when emptied. Assign those roles through a card menu or the search destination selector. **Options → Add by name** is in search. **Deck actions** contains deck tags and the **Primer**; existing notes are preserved as the primer. The primer opens in a large resizable window, saves as you type, and can reopen from the toolbar. Use the × on a window's own header to close it. **Show panels** in the toolbar contains only closed windows. This applies to Deck, Search, Sideboard, Considering, Commander, Companion, and Conspiracy. Role zones are stacked with Sideboard and Considering; closed search keeps its query and filters. Closing windows does not change cards, rules, or exports. **Stats** and **Import / export / edit** also close from their own headers. The toolbar is compact and offers one Primer entry. The rules summary is a header dropdown. Illegal card names are red in every zone, including Considering. Names are yellow when active copies exceed their limit or a pointed card contributes to an exceeded points budget. Minimum and maximum deck/sideboard sizes remain warnings in the rules panel. The header's **Deck actions** menu duplicates or deletes the deck and resets zone sizes. Duplicate and delete are also available on the deck library cards. Delete asks for confirmation. Library cards do not show progress or legality status labels.
+
+Card tags sit beside the name when they fit and wrap when they do not. Each zone's **View** button sits beside its name. Choose List, Super compact, or Card grid independently for each zone. Wide list views automatically spread each group over multiple columns, with tighter row padding. Card grid shows printing images inside the same groups; all modes preserve sorting, grouping, card actions, and saved settings. Select card details to display mana value, full mana cost symbols, color identity, price, type, rarity, tags, or printing in the list. The menu independently sorts and groups by alphabetical name, mana value, colors, color identity, USD price, type, rarity, or tags. Unknown values sort last, including in descending order. Cards with several tags appear in each tag group; deck totals still count each card once. Mana costs retain generic numbers, colorless diamonds, hybrid and Phyrexian pips, snow, and variable costs. Saved Colors row-display preferences migrate to Mana cost; color sorting and grouping keep their meaning. Prices are cached Scryfall values for the chosen printing, using its foil price if a regular price is unavailable.
+
+Use card details to save comma-separated tags. Deck tags are separate and let you filter or sort the library; decks also sort by format or name. Card tag changes save when you leave the field or close the panel, including Escape, outside clicks, and switching cards. Invalid tag edits stay open with an error. Tags apply to that card across its zones, survive moves and merges, and are inherited when more copies are added. Tags, view settings, and layout preferences are retained in browser storage and JSON backups; ordinary text decklist exports do not include them.
+
+Drag the dividers to resize deck/search, mainboard/auxiliary boards, auxiliary-zone proportions, and search controls/card results. The divider under the search controls adjusts their height independently of the results; both sections scroll separately. Search controls start at their natural height, and a chosen split is saved with the deck. Dividers also respond to arrow keys and reset on double-click. Auxiliary zones share the full available height using stacked dividers; their proportions remain stable when the workspace changes size. Layout proportions and zone proportions are saved per deck and adapt to a stacked mainboard/auxiliary layout on phones.
+
+Press **Ctrl+Z** or **Cmd+Z** outside text fields to undo deck edits repeatedly. **Ctrl+Shift+Z** or **Cmd+Shift+Z** redoes them; Deck actions also has Undo and Redo. History covers card additions/removals, quantities, moves, tags, printings, imports, names, formats, and primer edits for the current editing session. Background data refreshes and layout changes do not create history entries. Text fields keep their native text undo.
+
+## Custom formats
+
+Formats define minimum and maximum deck and sideboard sizes, copy limits, basic-land exemptions, bans, restricted card limits, tournament-card eligibility, rarity bans, and allowed sets. Blank maxima mean unlimited. The set picker loads the Scryfall catalogue and accepts pasted set codes. Enable **Eternal** for all sets, or disable it and choose at least one set.
+
+**Ban rarities** checks all printings, so a common downshift qualifies even if the selected edition is rare. **Common only / Pauper card pool** excludes other rarities; add Pauper's named bans separately. **Restrictions and points** accepts a per-card copy limit or a point value. Copy limits and points count copies across active zones; considering is excluded. Set a deck point limit to check a points budget. Unlisted cards cost zero points. The 100-card singleton / 10-point button sets size, copy, and budget defaults; card values remain editable using the [Canadian Highlander points list](https://canadianhighlander.ca/points-list/) as a reference.
+
+Alternatively choose **Card pool → Legal card list**. Paste or load a names-only list or quantity/name decklist. Import can append or replace, and the legal list can be exported. This replaces sets, rarity bans, and tournament-card eligibility with exact list membership; deck sizes, named bans, and restricted limits still apply. Large lists are searched in batches to keep individual API requests short. Results are merged, sorted, and paginated; the first search can take longer for a large pool. Advanced search displays the most recent batch query. In list mode the independent tournament-card search toggle starts off, so explicitly allowed unusual cards remain visible.
+
+Formats can be duplicated, exported as standalone `.format.json` files, imported, and deleted from the format library. Formats used by existing decks cannot be deleted until those decks are moved to another format or deleted. Click a card name in the banned, legal, restricted, or pointed lists to open the deck builder's card details panel with its image, current Oracle text, and printing browser. Click another name to switch cards; click outside or press Escape to close.
+
+The default library includes editable **2015 Modern**, **Prefire**, and **Commander** presets. They use the community card pools and bans checked on 2026-10-14: [2015 Modern](https://www.2015modern.com/) stops at Magic Origins, and [PreFIRE](https://prefiremagic.com/legality.html) stops at Ravnica Allegiance. Sources are recorded in `src/lib/default-formats.ts`. Presets are added once to older libraries without overwriting custom rules; deleted presets are not recreated on reload. Commander uses the [Wizards banned list](https://magic.wizards.com/en/banned-restricted-list) snapshot checked on 2026-10-14, including banned card types and companion-only restrictions. The app does not automatically update ban lists.
+
+The format editor uses the same advanced card search for bans. Click **Ban** in a result to add it, or remove a card from the ban list to unban it. **Import / edit / export bans** accepts names alone or quantity/name decklists with section headers and optional printing details. **Edit current list** fills the importer for text editing. Apply can append or replace, including clearing a list. Export copies or downloads either names alone or quantity/name lines. Import pasted changes before saving the format. Format rules use matching dropdowns for sizes, copies, card pools, rarity, bans, restrictions, points, and commander settings. Description is below the name. Every search result has direct **+ Ban**, **+ Restrict**, and **+ Points** buttons, plus **+ Legal** in legal-list mode. The fields above search set the copy limit and points to assign. Restricted and pointed imports accept names or decklists with a chosen default value, or explicit `Card name = value`, `Card name: value`, and tab-separated values. A leading decklist quantity is not interpreted as points. Bulk Add / update merges by card name; Replace swaps the complete list.
+
+Set legality follows card identity: a card is allowed if it has appeared in at least one selected set, regardless of the printing you add. Scryfall resolution checks all printing pages. Unresolved cards are reported as unverified. Unknown custom cards can be entered manually and kept in a draft.
+
+Commander checks are optional under the format editor's extra settings. The preset uses exactly 100 cards, one copy per card, basic-land exemptions, and no sideboard. Custom formats keep bans and sets under your control; the default Commander format starts with an eternal pool and the recorded ban snapshot. Commander cards count toward deck size. Companion cards count toward ordinary sideboard sizes but remain outside the sideboard in commander formats. Conspiracies do not count toward deck or sideboard size.
+
+Checks include deck sizes, copies across active sections, bans, allowed sets, commander color identity, basic commander eligibility, common pairing abilities, and companion/conspiracy card types. Companion deck restrictions, unusual commander exceptions, and card-specific exceptions to copy limits need manual review. The preset does not fetch an official ban list or certify sanctioned-format legality.
+
+## Import and export
+
+The main header's **Import / export** opens bulk transfer controls. Select **Decks**, **Formats**, or **Decks + formats**, then choose individual items or use All / None. Combined exports automatically include formats used by selected decks. Deck exports preserve quantities, zones, tags, primers, and each card's selected printing. They exclude preferred printings for future decks and personal view/layout settings. Imported printing images and card metadata load from Scryfall when you open the deck.
+
+Import accepts multiple `.transfer.json` files together, plus older standalone `.format.json` exports. Review the counts and confirm destination formats for decks-only files before **Add to library**. Imports add decks with fresh IDs and keep existing decks and personal settings. Matching format definitions are reused; different rules with the same name create a separate format. Invalid files prevent the whole import.
+
+**Full backup** includes decks and their selected printings, formats, preferred printings for future decks, saved views, layout settings, and cached card metadata. Restore replaces the library after confirmation. Older full backups remain supported.
+
+Use **Import / edit / export** in the deck toolbar to paste or load a text decklist. Imports are checked before applying, can append or replace, and support these common text conventions:
+
+- `4 Lightning Bolt` and `4x Lightning Bolt`.
+- Arena-style `Deck`, `Sideboard`, `Commander`, and `Companion` headers.
+- `Considering`, `Maybeboard`, and `Conspiracy` sections.
+- Comment and bracket section headers, inline section tags, and `SB:` prefixes.
+- Optional `(SET) collector-number` printing preferences and Moxfield foil/tag suffixes.
+- A blank line separating mainboard and sideboard in a plain list without section headers.
+
+**Edit current deck** fills the importer with all current sections and printing details. Cut and paste lines between sections and choose **Apply edits** to replace the card list atomically. Existing card tags and metadata are preserved where the printing matches; an empty editor clears the list. Text edits do not apply until you press the button.
+
+Select a printing in card details and optionally save it as the default for that card in future decks. Defaults are stored locally and included in JSON backups. Explicit printing details in imported lists take precedence.
+
+**Stats** in the header shows a nonland mana curve, colored pip counts and percentages, and the expected opening-hand count for any main-deck card type or tag, with an adjustable hand size. Land is the default selection. Curve and pip totals include main deck and commanders. Opening-hand estimates use only main-deck cards, before mulligans; land/spell double-faced cards use the front face. Hybrid pips split their contribution between colors, Phyrexian pips count toward their color, and generic costs are excluded. Missing data is reported. The panel links to the [Stat Trek hypergeometric calculator](https://stattrek.com/online-calculator/hypergeometric) with deckbuilding input instructions.
+
+Exports can be copied or downloaded as `.txt`:
+
+- **Arena-style text** includes Deck, Sideboard, Commander, and Companion sections.
+- **Plain text** uses quantity/name lines with section labels where needed.
+- **MTGO-style text** uses `SB:` prefixes, combines commanders with the deck, and companions with the sideboard.
+- **All sections** also preserves considering and conspiracy cards. It includes a Format Forge comment to distinguish separate companion storage from Arena-style companion designation.
+
+Arena-style companion designation and its duplicate sideboard entry import as one companion, without double-counting. Printing details can be included in exports. Compatibility depends on the destination's supported cards and sections; Arena-style text does not make a card available on Arena. Binary, XML `.dek`, CSV, and other builders' JSON deck exports are not supported. Use **Full backup** for a lossless library backup.
+
+## Storage and API access
+
+LocalStorage belongs to the current browser and origin. Changing ports, hostnames, or browsers creates a separate library. Clearing browser data removes the library. Export a backup before moving devices. Backup import replaces the library after confirmation. Tabs do not synchronize changes; avoid editing the same library in multiple tabs.
+
+Unreadable saved data is preserved until you choose to replace it. If storage is unavailable or full, changes remain in memory and can be exported. Deck changes save automatically; format forms save with **Save format**.
+
+The browser requests card data from [Scryfall's API](https://scryfall.com/docs/api) and images from Scryfall's image service. Searches and card names being resolved are sent to Scryfall. No account, API key, or backend is needed. Debounced filters, request pacing, cancellation, timeouts, and memory caches limit API traffic. Printing data is saved with decks and refreshed after a day when set restrictions require it. Core editing and backups remain available offline; new searches and unresolved legality checks require a connection.
+
+## Files and tests
+
+`src/lib/model.ts` contains library types, rule checks, migration, and text interchange. `src/lib/deck-stats.ts` calculates mana curves, pips, and opening-hand land expectations. `src/lib/deck-view.ts` handles sorting and grouping, and `src/lib/default-formats.ts` contains preset snapshots. `src/lib/scryfall.ts` contains query building and API requests. Components in `src/components/` implement the editors, search, card preview, deck boards, and splitters. `src/App.svelte` manages the local library and navigation.
+
+Tests cover deck rules, partial card moves, tags and merge behavior, conditional zones, sorting/grouping, saved layouts, preset migration, standalone formats, ban plaintext imports, considering exclusions, roles, reprint legality, import/export round trips, bulk transfer selections, format remapping, printing preservation, backup boundaries, multiple rules-text phrases, token defaults, API pagination, grouping, caching, pacing, and cancellation. API tests mock fetch and do not depend on a live connection.
+
+Magic: The Gathering is a trademark of Wizards of the Coast. This is an independent project. Card data and images are provided by Scryfall.
+>>>>>>> c2b9d83 (Create Format Forge deck builder)

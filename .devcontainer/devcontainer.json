@@ -1,0 +1,17 @@
+{
+  "name": "MTG Format Forge",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "remoteUser": "node",
+  "forwardPorts": [5173, 4173],
+  "portsAttributes": {
+    "5173": { "label": "Svelte app", "onAutoForward": "notify" },
+    "4173": { "label": "Production preview", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "npm ci",
+  "customizations": {
+    "vscode": {
+      "extensions": ["svelte.svelte-vscode"],
+      "settings": { "files.eol": "\n" }
+    }
+  }
+}
