@@ -49,7 +49,7 @@
       untrack(() => {
         controller?.abort(); generation++; clearTimeout(debounce);
         loading = true; error = ''; next = undefined; results = []; searched = false;
-        debounce = setTimeout(() => { void search(); }, firstLoad ? 0 : 350);
+        debounce = setTimeout(() => { void search(); }, firstLoad ? 0 : 700);
         firstLoad = false;
       });
     } catch (e) {

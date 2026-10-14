@@ -1,3 +1,4 @@
+import { scryfallClient, ApiError, CACHE_TTL } from './scryfall-client.ts';
 import { normalizeName, RARITIES } from './model.ts';
 import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
 
@@ -85,45 +86,15 @@ export function buildSearchQuery(query: string, filters: SearchFilters, format?:
   return parts.join(' ') || 'name:/.*/';
 }
 
-// All API callers share a queue; UI changes are debounced before requesting.
-let tail: Promise<unknown> = Promise.resolve();
-let lastRequest = 0;
-const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-class ApiError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) { super(message); this.status = status; }
-}
-async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const endpoint = new URL(url);
-  if (endpoint.origin !== 'https://api.scryfall.com') throw new Error('Invalid Scryfall endpoint.');
-  const job = tail.catch(() => {}).then(async () => {
-    await pause(Math.max(0, 125 - (Date.now() - lastRequest)));
-    signal?.throwIfAborted();
-    lastRequest = Date.now();
-    const controller = new AbortController();
-    const cancel = () => controller.abort(signal?.reason);
-    signal?.addEventListener('abort', cancel, { once: true });
-    const timer = setTimeout(() => controller.abort(new Error('Scryfall timed out. Try again.')), 15000);
-    try {
-      const response = await fetch(endpoint, { signal: controller.signal, headers: { Accept: 'application/json' } });
-      const data = await response.json();
-      if (!response.ok) throw new ApiError(data.details || (response.status === 429 ? 'Scryfall is busy. Wait a moment and retry.' : 'Scryfall request failed.'), response.status);
-      return data as T;
-    } catch (error) {
-      if (controller.signal.aborted) throw controller.signal.reason;
-      if (error instanceof ApiError) throw error;
-      throw new Error('Could not reach Scryfall. Check your connection and try again.');
-    } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
-  });
-  tail = job;
-  return job;
-}
+// Shared, persistent caching and rate limiting cover every API caller.
+const request = <T>(url: string, signal?: AbortSignal) => scryfallClient.request<T>(url, signal);
 const searchCache = new Map<string, { at: number; data: SearchResult }>();
 export interface SearchOptions { unique?: 'cards' | 'art' | 'prints'; direction?: 'auto' | 'asc' | 'desc'; extras?: boolean }
 export async function searchCards(query: string, order = 'name', signal?: AbortSignal, next?: string, options: SearchOptions = {}): Promise<SearchResult> {
   const url = next ?? `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: query.trim() || 'name:/.*/', unique: options.unique ?? 'cards', order, dir: options.direction ?? 'auto', include_extras: String(options.extras ?? true) })}`;
+  signal?.throwIfAborted();
   const cached = searchCache.get(url);
-  if (cached && Date.now() - cached.at < 600000) return cached.data;
+  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.data;
   let data: SearchResult;
   try { data = await request<SearchResult>(url, signal); }
   catch (error) { if (error instanceof ApiError && error.status === 404) data = { data: [], total_cards: 0, has_more: false }; else throw error; }
@@ -131,8 +102,10 @@ export async function searchCards(query: string, order = 'name', signal?: AbortS
   searchCache.set(url, { at: Date.now(), data });
   return data;
 }
-let setCache: Promise<ScryfallSet[]> | undefined;
+let setCache: Promise<ScryfallSet[]> | undefined, setsAt = 0;
 export function loadSets(): Promise<ScryfallSet[]> {
+  if (Date.now() - setsAt >= CACHE_TTL) setCache = undefined;
+  if (!setCache) setsAt = Date.now();
   return setCache ??= request<{ data: ScryfallSet[] }>('https://api.scryfall.com/sets').then(list => list.data.sort((a, b) => (b.released_at ?? '').localeCompare(a.released_at ?? ''))).catch(error => { setCache = undefined; throw error; });
 }
 export function cardInfo(card: ScryfallCard): CardInfo {
@@ -145,48 +118,55 @@ export function cardInfo(card: ScryfallCard): CardInfo {
     manaCost: card.mana_cost ?? card.card_faces?.map(f => f.mana_cost ?? '').join(' // ') ?? '', colorIdentity: card.color_identity,
     manaValue: card.cmc ?? null, colors: card.colors ?? [...new Set(card.card_faces?.flatMap(f => f.colors ?? []) ?? [])], rarity: card.rarity ?? 'unknown', priceUSD: price !== null && Number.isFinite(price) ? price : null };
 }
-const printingCache = new Map<string, Promise<{ printSets: string[]; printRarities: string[] }>>();
-async function printingSets(card: ScryfallCard): Promise<{ printSets: string[]; printRarities: string[] }> {
+const printingCache = new Map<string, { at: number; promise: Promise<{ printSets: string[]; printRarities: string[] }> }>();
+async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{ printSets: string[]; printRarities: string[] }> {
   const key = card.oracle_id ?? normalizeName(card.name);
-  let promise = printingCache.get(key);
+  const cached = printingCache.get(key);
+  let promise = cached && Date.now() - cached.at < CACHE_TTL ? cached.promise : undefined;
   if (!promise) {
     promise = (async () => {
       const query = card.oracle_id ? `oracleid:${card.oracle_id}` : `!${quote(card.name)}`;
       let next: string | undefined = `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: query, unique: 'prints', include_extras: 'true' })}`;
       const sets = new Set<string>(), rarities = new Set<string>();
       while (next) {
-        const page: SearchResult = await request<SearchResult>(next);
+        const page: SearchResult = await request<SearchResult>(next, signal);
         for (const print of page.data) { sets.add(print.set); if (RARITIES.includes(print.rarity as Rarity)) rarities.add(print.rarity!); }
         next = page.has_more ? page.next_page : undefined;
       }
       return { printSets: [...sets], printRarities: [...rarities] };
-    })().catch(error => { printingCache.delete(key); throw error; });
+    })().catch(error => { if (!signal) printingCache.delete(key); throw error; });
     if (printingCache.size >= 500) printingCache.delete(printingCache.keys().next().value!);
-    printingCache.set(key, promise);
+    // Abortable consumers share completed results, not another consumer's signal.
+    if (!signal) printingCache.set(key, { at: Date.now(), promise });
   }
-  return promise;
+  const result = await promise; signal?.throwIfAborted();
+  if (signal) printingCache.set(key, { at: Date.now(), promise: Promise.resolve(result) });
+  return result;
 }
-export async function resolveCard(entry: CardEntry, needsSets: boolean): Promise<CardInfo> {
+export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?: AbortSignal): Promise<CardInfo> {
+  signal?.throwIfAborted();
   let card: ScryfallCard;
-  if (entry.info?.scryfallId) card = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.scryfallId)}`);
+  if (entry.info?.scryfallId) card = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.scryfallId)}`, signal);
   else {
     // Imported printing preferences are honored when that printing matches the card.
     let preferred: ScryfallCard | undefined;
     if (entry.info?.set && entry.info.collectorNumber) {
-      try { preferred = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.set)}/${encodeURIComponent(entry.info.collectorNumber)}`); }
+      try { preferred = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.set)}/${encodeURIComponent(entry.info.collectorNumber)}`, signal); }
       catch (e) { if (!(e instanceof ApiError && e.status === 404)) throw e; }
     }
     card = preferred && (normalizeName(preferred.name) === normalizeName(entry.name) || preferred.card_faces?.some(f => normalizeName(f.name) === normalizeName(entry.name)))
-      ? preferred : await request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: entry.name })}`);
+      ? preferred : await request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: entry.name })}`, signal);
   }
+  signal?.throwIfAborted();
   const info = cardInfo(card);
-  return needsSets ? { ...info, ...await printingSets(card), setsComplete: true, checkedAt: new Date().toISOString() } : info;
+  return needsSets ? { ...info, ...await printingSets(card, signal), setsComplete: true, checkedAt: new Date().toISOString() } : info;
 }
 
-const editionsCache = new Map<string, Promise<ScryfallCard[]>>();
+const editionsCache = new Map<string, { at: number; promise: Promise<ScryfallCard[]> }>();
 export function loadPrintings(name: string, oracleId?: string): Promise<ScryfallCard[]> {
   const key = oracleId ?? normalizeName(name);
-  let result = editionsCache.get(key);
+  const cached = editionsCache.get(key);
+  let result = cached && Date.now() - cached.at < CACHE_TTL ? cached.promise : undefined;
   if (!result) {
     result = (async () => {
       let next: string | undefined = `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: oracleId ? `oracleid:${oracleId}` : `!${quote(name)}`, unique: 'prints', order: 'released', dir: 'desc', include_extras: 'true' })}`;
@@ -194,14 +174,15 @@ export function loadPrintings(name: string, oracleId?: string): Promise<Scryfall
       while (next) { const page: SearchResult = await request(next); cards.push(...page.data); next = page.has_more ? page.next_page : undefined; }
       return cards;
     })().catch(error => { editionsCache.delete(key); throw error; });
-    editionsCache.set(key, result);
+    if (editionsCache.size >= 500) editionsCache.delete(editionsCache.keys().next().value!);
+    editionsCache.set(key, { at: Date.now(), promise: result });
   }
   return result;
 }
 const oracleCache = new Map<string, { at: number; promise: Promise<CardInfo> }>();
 export function latestOracle(name: string): Promise<CardInfo> {
   const key = normalizeName(name), cached = oracleCache.get(key);
-  if (cached && Date.now() - cached.at < 3600000) return cached.promise;
+  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.promise;
   const promise = request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: name })}`).then(cardInfo).catch(error => { oracleCache.delete(key); throw error; });
   oracleCache.set(key, { at: Date.now(), promise }); return promise;
 }
@@ -224,7 +205,7 @@ export async function searchLegalPool(query: string, format: Format, order = 'na
   onquery?.(legalPoolQuery(query, names.slice(0, 40)));
   const key = JSON.stringify([query, names, format.banned, order, options]);
   let cached = legalPoolCache.get(key);
-  if (!cached || Date.now() - cached.at >= 600000) {
+  if (!cached || Date.now() - cached.at >= CACHE_TTL) {
     const found = new Map<string, ScryfallCard>();
     for (let i = 0; i < names.length; i += 40) {
       signal?.throwIfAborted();

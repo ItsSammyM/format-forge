@@ -122,6 +122,19 @@ test('aborted requests and external pagination URLs cannot fetch', async () => {
   } finally { fetch.mock.restore(); }
 });
 
+test('closing a deck during card resolution prevents the follow-up printing search', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const fetch = mock.method(globalThis, 'fetch', async () => {
+    calls++; controller.abort();
+    return json({ ...card, id: 'closed-deck-print', oracle_id: 'closed-deck-oracle', name: 'Closing Deck Fixture' });
+  });
+  try {
+    await assert.rejects(resolveCard({ id: 'closing', name: 'Closing Deck Fixture', zone: 'main', quantity: 1 }, true, controller.signal));
+    assert.equal(calls, 1);
+  } finally { fetch.mock.restore(); }
+});
+
 test('historic set pools keep named bans out of the Scryfall query', () => {
   const f = { ...blankFormat(), allowedSets: ['8ed', 'mrd', 'ori'], banned: ['A+B', 'Who (What)?', 'Half // Half'] };
   const q = buildSearchQuery('', emptyFilters(), f);

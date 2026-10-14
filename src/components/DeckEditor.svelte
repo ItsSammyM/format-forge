@@ -46,8 +46,9 @@
   const allTags = $derived([...new Set(deck.cards.flatMap(c => c.tags ?? []))].sort());
   const exported = $derived(deckText(deck, exportStyle, printings));
   const attempts = new Set<string>();
+  const metadataController = new AbortController();
   let disposed = false;
-  onDestroy(() => { disposed = true; });
+  onDestroy(() => { disposed = true; metadataController.abort(); });
   $effect(() => {
     retry;
     const needsSets = !format.whitelistOnly && (!format.eternal && format.allowedSets.length > 0 || !!format.bannedRarities?.length);
@@ -65,7 +66,7 @@
   async function enrich(entry: CardEntry, needsSets: boolean) {
     resolving++;
     try {
-      const info = await resolveCard(entry, needsSets);
+      const info = await resolveCard(entry, needsSets, metadataController.signal);
       if (!disposed && deck.cards.some(c => c.id === entry.id)) { history.refreshMetadata(entry.id, entry.info, info); onchange({ ...deck, cards: deck.cards.map(c => c.id === entry.id && normalizeName(c.name) === normalizeName(entry.name) && c.info?.scryfallId === entry.info?.scryfallId ? { ...c, info } : c) }); }
     } catch (e) { if (!disposed) lookupError = `${entry.name}: ${e instanceof Error ? e.message : 'Card data could not be resolved.'}`; }
     finally { if (!disposed) resolving--; }

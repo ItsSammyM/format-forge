@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ScryfallStatus from './components/ScryfallStatus.svelte';
   import LibraryTransfer from './components/LibraryTransfer.svelte';
   import { parseBackupText } from './lib/transfer';
   import DeckEditor from './components/DeckEditor.svelte';
@@ -94,6 +95,7 @@
     <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary library-transfer-button" onclick={() => transferOpen = true}>Import / export</button></div>
   </header>
   <main class:builder-main={!!selected}>
+    <ScryfallStatus />
     {#if storageError}<div class="alert" role="alert"><p>{storageError}</p>{#if recovery}<div class="alert-actions"><button class="secondary" onclick={() => download(recovery, 'format-forge-recovery.json')}>Download stored data</button><button class="quiet" onclick={resetStorage}>Start fresh</button></div>{/if}</div>{/if}
     {#if notice}<div class="notice" role="status">{notice}<button class="icon-button" onclick={() => notice = ''} aria-label="Dismiss message">×</button></div>{/if}
     {#if selected}
