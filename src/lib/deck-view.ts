@@ -1,5 +1,6 @@
 import type { BoardView, CardEntry, CardSort } from './model.ts';
-export const DEFAULT_VIEW: BoardView = { sort: 'name', group: 'none', direction: 'asc' };
+export const DEFAULT_VIEW: BoardView = { sort: 'manaValue', group: 'type', direction: 'asc', display: 'compact', details: ['manaCost', 'tags'], cardSize: 170 };
+export function boardView(saved?: BoardView): BoardView { return { ...DEFAULT_VIEW, ...saved, display: saved?.display === 'cards' ? 'cards' : 'compact', details: saved?.details ?? [...DEFAULT_VIEW.details!] }; }
 export const SORT_LABELS: Record<CardSort, string> = { name: 'Alphabetical', manaValue: 'Mana value', colors: 'Colors', colorIdentity: 'Color identity', price: 'Price (USD)', type: 'Type', rarity: 'Rarity', tags: 'Tags' };
 const rarityOrder = ['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'];
 const colorNames: Record<string, string> = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };

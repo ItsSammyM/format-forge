@@ -5,7 +5,7 @@
   import DeckEditor from './components/DeckEditor.svelte';
   import FormatEditor from './components/FormatEditor.svelte';
   import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, parseFormatText, normalizeName } from './lib/model';
-  import { addDefaultFormats } from './lib/default-formats';
+  import { addDefaultFormats, isDefaultFormat } from './lib/default-formats';
   import type { Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
 
@@ -16,7 +16,7 @@
   let recovery = $state(loaded.recovery);
   let notice = $state('');
   let transferOpen = $state(false);
-  let page = $state<'decks' | 'formats'>('decks');
+  let page = $state<'home' | 'decks' | 'formats'>('home');
   let selectedId = $state<string | null>(null);
   let editing = $state<Format | null>(null);
   let search = $state('');
@@ -33,7 +33,7 @@
     if (writable) storageError = saveLibrary(JSON.parse(snapshot));
   });
 
-  function navigate(next: 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
+  function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
   function newFormat() {
     editing = blankFormat();
   }
@@ -43,6 +43,7 @@
     editing = null; notice = 'Format saved.';
   }
   function deleteFormat(format: Format) {
+    if (isDefaultFormat(format.id)) { notice = 'Default formats cannot be deleted.'; return; }
     if (library.decks.some(d => d.formatId === format.id)) { notice = 'Change or delete the decks using this format before deleting it.'; return; }
     if (confirm(`Delete the format "${format.name}"?`)) library.formats = library.formats.filter(f => f.id !== format.id);
   }
@@ -91,7 +92,7 @@
 
 <div class="app-shell">
   <header class="app-header">
-    <nav aria-label="Main navigation"><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button></nav>
+    <nav aria-label="Main navigation"><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button></nav>
     <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary library-transfer-button" onclick={() => transferOpen = true}>Import / export</button></div>
   </header>
   <main class:builder-main={!!selected}>
@@ -100,7 +101,9 @@
     {#if notice}<div class="notice" role="status">{notice}<button class="icon-button" onclick={() => notice = ''} aria-label="Dismiss message">×</button></div>{/if}
     {#if selected}
       <h1 class="sr-only">{selected.name}</h1>
-      {#key selected.id}<DeckEditor deck={selected} formats={library.formats} preferredPrintings={library.preferredPrintings ?? {}} onpreferred={(name, info) => { const preferences = { ...library.preferredPrintings }; if (info) preferences[normalizeName(name)] = info; else delete preferences[normalizeName(name)]; library.preferredPrintings = preferences; }} onchange={updateDeck} onback={() => selectedId = null} onduplicate={() => { if (selected) duplicate(selected); }} ondelete={() => { if (selected) deleteDeck(selected); }} />{/key}
+      {#key selected.id}<DeckEditor deck={selected} formats={library.formats} preferredPrintings={library.preferredPrintings ?? {}} preferredView={library.preferredView} onpreferredView={(view) => library.preferredView = view} onpreferred={(name, info) => { const preferences = { ...library.preferredPrintings }; if (info) preferences[normalizeName(name)] = info; else delete preferences[normalizeName(name)]; library.preferredPrintings = preferences; }} onchange={updateDeck} onback={() => selectedId = null} onduplicate={() => { if (selected) duplicate(selected); }} ondelete={() => { if (selected) deleteDeck(selected); }} />{/key}
+    {:else if page === 'home'}
+      <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Build Magic decks for the formats you want to play.</p><p>Custom card pools, bans, restrictions, points and price limits. Start with a default format or make your own.</p><div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div><p class="help">Decks and preferences save on this device. Use Import / export to move your collection or keep a backup.</p></section>
     {:else if page === 'decks'}
       <div class="page-heading"><h1>Decks</h1><button class="primary" onclick={startDeck} disabled={!library.formats.length}>+ New deck</button></div>
       {#if creating}<section class="panel create-deck"><form onsubmit={createDeck}><label>Deck name<input bind:value={deckName} required maxlength="200" /></label><label>Format<select bind:value={newFormatId}>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><button class="primary" type="submit">Create deck</button><button class="quiet" type="button" onclick={() => creating = false}>Cancel</button></form></section>{/if}
@@ -111,7 +114,7 @@
     {:else}
       <div class="page-heading"><h1>Formats</h1><div class="format-page-actions"><label class="file-button secondary">Import format<input type="file" accept=".json,application/json" onchange={importFormat} /></label><button class="primary" onclick={newFormat}>+ New format</button></div></div>
       {#if editing}{#key editing.id}<FormatEditor format={editing} onsave={saveFormat} oncancel={() => editing = null} />{/key}
-      {:else}<div class="format-grid">{#each library.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}<article class="panel format-card"><div class="section-heading"><h2>{format.name}</h2><span class="muted">{used} {used === 1 ? 'deck' : 'decks'}</span></div>{#if format.description}<p class="format-description">{format.description}</p>{/if}<dl class="rule-summary"><div><dt>Deck size</dt><dd>{format.minCards}–{format.maxCards ?? '∞'}</dd></div><div><dt>Sideboard</dt><dd>{format.minSideboard}–{format.maxSideboard ?? '∞'}</dd></div><div><dt>Copies</dt><dd>{format.copyLimit}{format.basicLandExemption ? ' · basics exempt' : ''}</dd></div><div><dt>Sets</dt><dd>{format.whitelistOnly ? `${format.allowedCards?.length ?? 0} legal cards` : format.allowedSets.length ? `${format.allowedSets.length} sets` : 'All sets'}</dd></div><div><dt>Banned cards</dt><dd>{format.banned.length}</dd></div>{#if format.commanderRules}<div><dt>Commander rules</dt><dd>Enabled</dd></div>{/if}</dl><div class="format-card-actions"><button class="secondary" onclick={() => editing = format}>Edit</button><button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button><button class="quiet" onclick={() => exportFormat(format)}>Export</button><button class="quiet danger" disabled={used > 0} title={used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button></div></article>{/each}</div>{#if !library.formats.length}<section class="empty-state"><p>No formats yet.</p></section>{/if}{/if}
+      {:else}<div class="format-grid">{#each library.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}<article class="panel format-card"><div class="section-heading"><h2>{format.name}</h2><span class="muted">{used} {used === 1 ? 'deck' : 'decks'}</span></div>{#if format.description}<p class="format-description">{format.description}</p>{/if}<dl class="rule-summary"><div><dt>Deck size</dt><dd>{format.minCards}–{format.maxCards ?? '∞'}</dd></div><div><dt>Sideboard</dt><dd>{format.minSideboard}–{format.maxSideboard ?? '∞'}</dd></div><div><dt>Copies</dt><dd>{format.copyLimit}{format.basicLandExemption ? ' · basics exempt' : ''}</dd></div><div><dt>Sets</dt><dd>{format.whitelistOnly ? `${format.allowedCards?.length ?? 0} legal cards` : format.officialFormat ? 'Modern card pool' : format.allowedSets.length ? `${format.allowedSets.length} sets` : 'All sets'}</dd></div><div><dt>Banned cards</dt><dd>{format.banned.length}</dd></div>{#if format.commanderRules}<div><dt>Commander rules</dt><dd>Enabled</dd></div>{/if}</dl><div class="format-card-actions"><button class="secondary" onclick={() => editing = format}>Edit</button><button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button><button class="quiet" onclick={() => exportFormat(format)}>Export</button><button class="quiet danger" disabled={isDefaultFormat(format.id) || used > 0} title={isDefaultFormat(format.id) ? 'Default formats cannot be deleted' : used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button></div></article>{/each}</div>{#if !library.formats.length}<section class="empty-state"><p>No formats yet.</p></section>{/if}{/if}
     {/if}
   </main>
 </div>

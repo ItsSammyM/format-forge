@@ -4,7 +4,7 @@
   import AdvancedSearch from './AdvancedSearch.svelte';
   import { normalizeName, ruleCardName, ZONE_NAMES, ZONES } from '../lib/model';
   import type { CardInfo, Format, Zone } from '../lib/model';
-  import { buildSearchQuery, cardInfo, emptyFilters, searchCards, filterFormatCards, searchLegalPool, legalPoolQuery } from '../lib/scryfall';
+  import { buildSearchQuery, cardInfo, emptyFilters, searchCards, filterFormatCards, searchLegalPool, legalPoolQuery, legalPoolBatches } from '../lib/scryfall';
   import type { ScryfallCard, SearchOptions } from '../lib/scryfall';
   let { format, mode = 'deck', bannedNames = [], onadd, onpreview, oncarddrag, oncarddragend, onmanual, controlsSize, oncontrolresize, onclose, actionLabel = '+ Ban', selectedLabel = 'Banned', formatActions }: { format?: Format; mode?: 'deck' | 'ban'; bannedNames?: string[]; onadd: (name: string, info: CardInfo, zone: Zone) => void; onpreview: (name: string, info: CardInfo) => void; oncarddrag?: (event: DragEvent, name: string, info: CardInfo) => void; oncarddragend?: () => void; onmanual?: (name: string, quantity: number, zone: Zone) => void; controlsSize?: number; oncontrolresize?: (size: number) => void; onclose?: () => void; actionLabel?: string; selectedLabel?: string; formatActions?: { label: string; selectedLabel: string; disabled: (name: string) => boolean; onadd: (name: string, info: CardInfo) => void }[] } = $props();
   let workspace: HTMLDivElement, searchForm: HTMLFormElement, controlsContent: HTMLDivElement;
@@ -37,7 +37,7 @@
   let activeOrder = 'name', activeOptions: SearchOptions = {}, controller: AbortController | undefined, generation = 0;
   let debounce: ReturnType<typeof setTimeout> | undefined, firstLoad = true;
   const poolFormat = $derived(mode === 'deck' && onlyFormat ? format : undefined);
-  const exactQuery = $derived.by(() => { try { const base = buildSearchQuery(query, filters, poolFormat); return poolFormat?.whitelistOnly ? activeQuery || legalPoolQuery(base, (poolFormat.allowedCards ?? []).slice(0, 40)) : base; } catch (e) { return e instanceof Error ? e.message : 'Invalid query'; } });
+  const exactQuery = $derived.by(() => { try { const base = buildSearchQuery(query, filters, poolFormat); return poolFormat?.whitelistOnly ? activeQuery || legalPoolQuery(base, legalPoolBatches(base, poolFormat.allowedCards ?? [])[0] ?? []) : base; } catch (e) { return e instanceof Error ? e.message : 'Invalid query'; } });
   const banned = $derived(new Set(bannedNames.map(ruleCardName)));
 
   $effect(() => { const listPool = poolFormat?.whitelistOnly; untrack(() => { if (listPool) filters.normalOnly = false; }); });

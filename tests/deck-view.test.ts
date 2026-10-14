@@ -73,17 +73,17 @@ test('presets have the correct cutoff sets and distinct bans', () => {
   assert.equal(modern.banned.length, 32); assert.equal(prefire.banned.length, 26);
 });
 
-test('default upgrade adds presets once and preserves edits and deletions', () => {
+test('default upgrade adds protected presets once and preserves edits', () => {
   const old = { ...createLibrary(), defaultsVersion: undefined, formats: createLibrary().formats.slice(0, 2) };
   const upgraded = addDefaultFormats(old);
-  assert.equal(upgraded.formats.length, 5);
+  assert.equal(upgraded.formats.length, 7);
   upgraded.formats = upgraded.formats.filter(f => f.id !== 'prefire');
-  assert.equal(addDefaultFormats(upgraded).formats.length, 4);
+  assert.equal(addDefaultFormats(upgraded).formats.length, 7);
   const custom = { ...old, formats: [{ ...defaultFormats()[0], minCards: 42 }] };
   assert.equal(addDefaultFormats(custom).formats.find(f => f.id === '2015-modern')!.minCards, 42);
 });
 
-test('Commander upgrade preserves historical format edits and does not resurrect deleted presets', () => {
+test('default upgrade restores missing protected presets while preserving historical edits', () => {
   const library = { ...createLibrary(), defaultsVersion: 1 as const, formats: createLibrary().formats.filter(f => f.id !== 'commander' && f.id !== 'prefire').map(f => ({ ...f, minCards: 42 })) };
   const upgraded = addDefaultFormats(library);
   const commander = upgraded.formats.find(f => f.id === 'commander')!;
@@ -92,10 +92,10 @@ test('Commander upgrade preserves historical format edits and does not resurrect
   assert.ok(commander.banned.includes('Black Lotus'));
   assert.ok(!commander.banned.includes('Lutri, the Spellchaser'));
   assert.deepEqual(commander.bannedCompanions, ['Lutri, the Spellchaser']);
-  assert.ok(!upgraded.formats.some(f => f.id === 'prefire'));
+  assert.ok(upgraded.formats.some(f => f.id === 'prefire'));
   assert.equal(upgraded.formats.find(f => f.id === '2015-modern')!.minCards, 42);
   const removed = { ...upgraded, formats: upgraded.formats.filter(f => f.id !== 'commander') };
-  assert.ok(!addDefaultFormats(removed).formats.some(f => f.id === 'commander'));
+  assert.ok(addDefaultFormats(removed).formats.some(f => f.id === 'commander'));
 });
 
 test('search control sizes survive backups and old layouts remain valid', () => {

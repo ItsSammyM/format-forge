@@ -6,11 +6,11 @@
   import CardSearch from './CardSearch.svelte';
   import CardDetails from './CardDetails.svelte';
   import DeckStats from './DeckStats.svelte';
-  import { addCard, countCards, deckSize, sideboardSize, deckText, moveCard, normalizeName, parseDeckText, setLegality, validateDeck, visibleZones, setCardTags, replaceDeckText, changePrinting, deckPoints, isPointerDrag, normalizeTags, ZONE_NAMES, ZONES } from '../lib/model';
+  import { addCard, countCards, deckSize, sideboardSize, deckText, moveCard, normalizeName, parseDeckText, setLegality, validateDeck, visibleZones, setCardTags, replaceDeckText, changePrinting, deckPoints, isPointerDrag, normalizeTags, tournamentOnly, ZONE_NAMES, ZONES } from '../lib/model';
   import type { BoardView, CardEntry, CardInfo, Deck, DeckLayout, ExportStyle, Format, Zone, UISection } from '../lib/model';
   import { resolveCard } from '../lib/scryfall';
   import { download } from '../lib/storage';
-  let { deck, formats, onchange, onback, onduplicate, ondelete, preferredPrintings = {}, onpreferred }: { deck: Deck; formats: Format[]; onchange: (deck: Deck) => void; onback: () => void; onduplicate: () => void; ondelete: () => void; preferredPrintings?: Record<string, CardInfo>; onpreferred: (name: string, info?: CardInfo) => void } = $props();
+  let { deck, formats, onchange, onback, onduplicate, ondelete, preferredPrintings = {}, onpreferred, preferredView, onpreferredView }: { deck: Deck; formats: Format[]; onchange: (deck: Deck) => void; onback: () => void; onduplicate: () => void; ondelete: () => void; preferredPrintings?: Record<string, CardInfo>; onpreferred: (name: string, info?: CardInfo) => void; preferredView?: BoardView; onpreferredView: (view: BoardView) => void } = $props();
   const history = new DeckHistory();
   let historyVersion = $state(0);
   const canUndo = $derived.by(() => { historyVersion; return history.canUndo; });
@@ -52,7 +52,7 @@
   $effect(() => {
     retry;
     const needsSets = !format.whitelistOnly && (!format.eternal && format.allowedSets.length > 0 || !!format.bannedRarities?.length);
-    const jobs = deck.cards.filter(c => !c.info?.scryfallId || (!format.whitelistOnly && format.normalOnly && !c.info.vintageLegality) || (!format.whitelistOnly && format.bannedRarities?.length && !c.info.printRarities) || c.info.manaValue === undefined || c.info.colors === undefined || c.info.priceUSD === undefined || c.info.rarity === undefined || (needsSets && (!c.info.setsComplete || !c.info.checkedAt || Date.now() - Date.parse(c.info.checkedAt) > 86400000)));
+    const jobs = deck.cards.filter(c => !c.info?.scryfallId || (tournamentOnly(format) && !c.info.vintageLegality) || (format.officialFormat === 'modern' && !format.whitelistOnly && (!c.info.modernLegality || !c.info.checkedAt || Date.now() - Date.parse(c.info.checkedAt) > 86400000)) || ([format.minCardPrice, format.maxCardPrice, format.minDeckPrice, format.maxDeckPrice].some(n => n !== undefined) && (!c.info.checkedAt || Date.now() - Date.parse(c.info.checkedAt) > 86400000)) || (!format.whitelistOnly && format.bannedRarities?.length && !c.info.printRarities) || c.info.manaValue === undefined || c.info.colors === undefined || c.info.priceUSD === undefined || c.info.rarity === undefined || (needsSets && (!c.info.setsComplete || !c.info.checkedAt || Date.now() - Date.parse(c.info.checkedAt) > 86400000)));
     for (const entry of jobs) {
       if (resolving >= 4) break;
       const key = `${entry.id}:${entry.info?.scryfallId}:${needsSets}:${retry}`;
@@ -72,7 +72,7 @@
     finally { if (!disposed) resolving--; }
   }
   function layout(patch: DeckLayout) { onchange({ ...deck, layout: { ...deck.layout, ...patch } }); }
-  function view(zone: Zone, value: BoardView) { onchange({ ...deck, views: { ...deck.views, [zone]: value } }); }
+  function view(zone: Zone, value: BoardView) { onchange({ ...deck, views: { ...deck.views, [zone]: value } }); onpreferredView(value); }
   function edit(card: CardEntry) { if (cardDetails && !cardDetails.savePendingTags()) return; preview = null; editingCardId = card.id; error = ''; }
   function closeCard() { if (cardDetails && !cardDetails.savePendingTags()) return; preview = null; editingCardId = null; }
   function dragEnd() { dragged = null; hoveredZone = null; }
@@ -162,7 +162,7 @@
 
 
 {#snippet renderBoard(board: Zone, special = false)}
-  <DeckBoard {deck} {format} zone={board} onclose={() => toggleZone(board)} highlighted={hoveredZone === board} height={special ? deck.layout?.special?.[board] ?? 160 : undefined} onheight={(height) => layout({ special: { ...deck.layout?.special, [board]: height } })} onview={(value) => view(board, value)} onedit={edit} onquantity={(card, delta) => changeQuantity(card.id, delta)} onpreview={(card) => { if (card.info?.scryfallId) preview = { name: card.name, info: card.info }; }} ondragstart={nativeStart} ondragend={dragEnd} ondragover={nativeOver} ondragleave={nativeLeave} ondrop={nativeDrop} onpointerstart={pointerStart} {consumeDragClick} />
+  <DeckBoard {deck} {format} defaultView={preferredView} zone={board} onclose={() => toggleZone(board)} highlighted={hoveredZone === board} height={special ? deck.layout?.special?.[board] ?? 160 : undefined} onheight={(height) => layout({ special: { ...deck.layout?.special, [board]: height } })} onview={(value) => view(board, value)} onedit={edit} onquantity={(card, delta) => changeQuantity(card.id, delta)} onpreview={(card) => { if (card.info?.scryfallId) preview = { name: card.name, info: card.info }; }} ondragstart={nativeStart} ondragend={dragEnd} ondragover={nativeOver} ondragleave={nativeLeave} ondrop={nativeDrop} onpointerstart={pointerStart} {consumeDragClick} />
 {/snippet}
 <svelte:window onkeydown={undoKey} onpointermove={pointerMove} onpointerup={pointerFinish} onpointercancel={(event) => { if (dragged?.source === 'deck' && isPointerDrag(dragged, event.pointerId)) dragEnd(); }} />
 {#snippet deckWorkspace()}

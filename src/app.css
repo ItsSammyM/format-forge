@@ -353,7 +353,7 @@ legend { font-size: 14px; font-weight: 600; padding: 0 5px; }
 .compact-board .card-group-heading { padding:3px 4px; font-size:11px; }
 .compact-board .card-tags > span { padding:0 3px; font-size:9px; }
 .compact-board .mana-cost-pip { width:19px; height:19px; }.compact-board .mana-cost-pip.hybrid { width:21px; height:21px; }.compact-board .mana-cost-pip .mana-symbol { width:18px; height:18px; }
-.deck-image-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,130px),1fr)); gap:8px; padding:7px 2px; }
+.deck-image-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--deck-card-size,170px)),1fr)); gap:4px; padding:3px 1px; }
 .image-board .deck-row { display:block; border:0; min-width:0; position:relative; }
 .image-board .deck-card-name { display:flex; flex-direction:column; align-items:stretch; width:100%; padding:0; gap:4px; border-radius:8px; }
 .deck-grid-image { width:100%; height:auto; aspect-ratio:488/680; object-fit:contain; border-radius:8px; }
@@ -361,7 +361,7 @@ legend { font-size: 14px; font-weight: 600; padding: 0 5px; }
 .image-board .entry-count { position:absolute; left:5px; top:5px; border-radius:4px; padding:3px 6px; background:#fcfdf9; box-shadow:0 1px 5px #0004; font-size:13px; }
 .image-board .card-label { padding:0 3px; }.image-board .card-text { font-size:12px; }
 .image-board .card-list-details { justify-content:flex-start; margin:0; padding:0 3px; max-width:100%; }
-@media(max-width:600px) { .card-details-panel .card-details-image img { max-height:27dvh; }.card-details-rules .oracle-text { font-size:13px; }.deck-image-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,105px),1fr)); gap:6px; }.compact-board .deck-card-name { font-size:12px; } }
+@media(max-width:600px) { .card-details-panel .card-details-image img { max-height:27dvh; }.card-details-rules .oracle-text { font-size:13px; }.deck-image-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--deck-card-size,170px)),1fr)); gap:4px; }.compact-board .deck-card-name { font-size:12px; } }
 /* Let the workspace fill the viewport below the actual toolbar and panels. */
 main.builder-main { height:calc(100dvh - 50px); display:flex; flex-direction:column; gap:7px; overflow:auto; }
 main.builder-main > :not(.builder-layout) { flex-shrink:0; }
@@ -519,3 +519,11 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 
 .rule-card-row > .rule-card-name { flex:1; min-width:0; border:0; background:transparent; padding:3px 0; color:var(--green); text-align:left; font:inherit; overflow-wrap:anywhere; white-space:normal; }
 .rule-card-row > .rule-card-name:hover { text-decoration:underline; }
+
+.card-zoom-control { font-size:12px; color:var(--muted); }
+.card-zoom-control input[type="range"] { padding:0; min-height:22px; accent-color:var(--green); }
+.landing-page { max-width:760px; margin:clamp(22px,7vh,70px) auto; border-left:3px solid #89ad90; padding:8px 0 8px 20px; }
+.landing-page h1 { font-size:clamp(30px,5vw,46px); margin-bottom:8px; color:var(--green); }
+.landing-intro { font-size:19px; }
+.landing-page .transfer-actions { margin:18px 0; }
+@media(max-width:600px) { .app-header nav button { padding-inline:6px; }.app-header .save-status { display:none; }.landing-page { padding-left:13px; } }

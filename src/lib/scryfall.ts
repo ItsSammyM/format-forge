@@ -1,5 +1,5 @@
 import { scryfallClient, ApiError, CACHE_TTL } from './scryfall-client.ts';
-import { normalizeName, RARITIES } from './model.ts';
+import { normalizeName, RARITIES, tournamentOnly } from './model.ts';
 import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
 
 export interface ScryfallCard {
@@ -46,7 +46,11 @@ export function buildSearchQuery(query: string, filters: SearchFilters, format?:
   if (filters.excludeType.trim()) parts.push(...filters.excludeType.trim().split(/\s+/).map(t => `-t:${quote(t)}`));
   parts.push(...rulesTextTerms(filters.oracle).map(term => `o:${quote(term)}`));
   if (!filters.includeTokens) parts.push('-t:token');
-  if (filters.normalOnly || !format?.whitelistOnly && format?.normalOnly) parts.push(`(legal:vintage or restricted:vintage${filters.includeTokens && (!format?.normalOnly || format.whitelistOnly) ? ' or t:token' : ''})`);
+  const requireTournament = format ? tournamentOnly(format) : false;
+  if (filters.normalOnly || requireTournament) parts.push(`(legal:vintage or restricted:vintage${filters.includeTokens && !requireTournament ? ' or t:token' : ''})`);
+  if (format?.officialFormat === 'modern' && !format.whitelistOnly) parts.push('legal:modern');
+  if (format?.minCardPrice !== undefined) parts.push(`usd>=${format.minCardPrice}`);
+  if (format?.maxCardPrice !== undefined) parts.push(`usd<=${format.maxCardPrice}`);
   if (filters.colors) parts.push(`c${filters.colorMode}${filters.colors}`);
   if (filters.identity) parts.push(`ci${filters.identityMode}${filters.identity}`);
   if (filters.manaCost.trim()) parts.push(`mana:${quote(filters.manaCost.trim())}`);
@@ -111,12 +115,12 @@ export function loadSets(): Promise<ScryfallSet[]> {
 export function cardInfo(card: ScryfallCard): CardInfo {
   const rawPrice = card.prices?.usd ?? card.prices?.usd_foil;
   const price = rawPrice != null ? Number(rawPrice) : null;
-  return { ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
+  return { ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), ...(card.legalities?.modern ? { modernLegality: card.legalities.modern } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
     image: card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal,
     backImage: card.card_faces?.[1]?.image_uris?.normal, typeLine: card.type_line,
     oracleText: card.oracle_text ?? card.card_faces?.map(f => f.oracle_text ?? '').join('\n') ?? '',
     manaCost: card.mana_cost ?? card.card_faces?.map(f => f.mana_cost ?? '').join(' // ') ?? '', colorIdentity: card.color_identity,
-    manaValue: card.cmc ?? null, colors: card.colors ?? [...new Set(card.card_faces?.flatMap(f => f.colors ?? []) ?? [])], rarity: card.rarity ?? 'unknown', priceUSD: price !== null && Number.isFinite(price) ? price : null };
+    manaValue: card.cmc ?? null, colors: card.colors ?? [...new Set(card.card_faces?.flatMap(f => f.colors ?? []) ?? [])], rarity: card.rarity ?? 'unknown', priceUSD: price !== null && Number.isFinite(price) ? price : null, checkedAt: new Date().toISOString() };
 }
 const printingCache = new Map<string, { at: number; promise: Promise<{ printSets: string[]; printRarities: string[] }> }>();
 async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{ printSets: string[]; printRarities: string[] }> {
@@ -190,26 +194,44 @@ export function latestOracle(name: string): Promise<CardInfo> {
 export function filterFormatCards(cards: ScryfallCard[], format?: Format): ScryfallCard[] {
   const banned = new Set(format?.banned.map(normalizeName) ?? []);
   const allowed = format?.whitelistOnly ? new Set((format.allowedCards ?? []).map(normalizeName)) : undefined;
-  return cards.filter(card => { const names = [card.name, ...card.card_faces?.map(f => f.name) ?? []].map(normalizeName); return !names.some(name => banned.has(name)) && (!allowed || names.some(name => allowed.has(name))); });
+  return cards.filter(card => {
+    const names = [card.name, ...card.card_faces?.map(f => f.name) ?? []].map(normalizeName);
+    if (names.some(name => banned.has(name)) || allowed && !names.some(name => allowed.has(name))) return false;
+    if (format?.officialFormat === 'modern' && !format.whitelistOnly && card.legalities?.modern && !['legal', 'restricted'].includes(card.legalities.modern)) return false;
+    if (format && tournamentOnly(format) && card.legalities?.vintage && !['legal', 'restricted'].includes(card.legalities.vintage)) return false;
+    return true;
+  });
 }
 
 export function legalPoolQuery(query: string, names: string[]): string {
   // Positive fielded name terms are only candidates; exact membership is checked
   // locally, so names like Opt never admit Optical Optimizer.
-  return `${query} (${names.map(name => `name:${quote(name)}`).join(' or ')})`;
+  return `${query} (${names.map(name => `name:${quote(name.split(' // ')[0])}`).join(' or ')})`;
+}
+export function legalPoolBatches(query: string, names: string[]): string[][] {
+  const batches: string[][] = []; let batch: string[] = [];
+  const fits = (names: string[]) => names.length <= 40 && new TextEncoder().encode(legalPoolQuery(query, names)).length <= 700;
+  for (const name of names) {
+    if (batch.length && !fits([...batch, name])) { batches.push(batch); batch = []; }
+    if (!fits([name])) throw new Error('This legal-list search is too long. Shorten the advanced query.');
+    batch.push(name);
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
 }
 const legalPoolCache = new Map<string, { at: number; cards: ScryfallCard[] }>();
 export async function searchLegalPool(query: string, format: Format, order = 'name', signal?: AbortSignal, next?: string, options: SearchOptions = {}, onquery?: (query: string) => void): Promise<SearchResult> {
   const names = [...new Set(format.allowedCards ?? [])];
   if (!names.length) return { data: [], total_cards: 0, has_more: false };
-  onquery?.(legalPoolQuery(query, names.slice(0, 40)));
-  const key = JSON.stringify([query, names, format.banned, order, options]);
+  const batches = legalPoolBatches(query, names);
+  onquery?.(legalPoolQuery(query, batches[0]));
+  const key = JSON.stringify([query, names, format, order, options]);
   let cached = legalPoolCache.get(key);
   if (!cached || Date.now() - cached.at >= CACHE_TTL) {
     const found = new Map<string, ScryfallCard>();
-    for (let i = 0; i < names.length; i += 40) {
+    for (const batch of batches) {
       signal?.throwIfAborted();
-      const candidateQuery = legalPoolQuery(query, names.slice(i, i + 40)); onquery?.(candidateQuery);
+      const candidateQuery = legalPoolQuery(query, batch); onquery?.(candidateQuery);
       let page: SearchResult = await searchCards(candidateQuery, order, signal, undefined, options);
       while (true) {
         for (const card of filterFormatCards(page.data, format)) found.set(card.id, card);
