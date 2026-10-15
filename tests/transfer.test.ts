@@ -71,7 +71,7 @@ test('same-name formats with different rules are imported separately and decks f
   const destination = createLibrary(); const plan = planImport(destination, [file]); const result = applyImport(destination, [file], plan, {});
   assert.equal(plan.newFormats.length, 1); assert.match(plan.newFormats[0].name, /\(imported\)/);
   assert.notEqual(plan.newFormats[0].id, library.formats[0].id);
-  assert.equal(result.decks[0].formatId, plan.newFormats[0].id); assert.equal(destination.formats[0].copyLimit, 4);
+  assert.equal(result.decks[0].formatId, plan.newFormats[0].id); assert.equal(destination.formats[0].copyLimit, null);
 });
 
 test('multiple files can supply decks and their formats separately', () => {

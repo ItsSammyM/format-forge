@@ -18,7 +18,7 @@ const commanderBans = ['Ancestral Recall', 'Balance', 'Black Lotus', 'Chaos Orb'
 const canadianPoints: [string, number][] = [
   ['Ancestral Recall', 8], ['Ancient Tomb', 1], ['Balance', 1], ['Black Lotus', 7], ['Demonic Tutor', 3], ['Dig Through Time', 1], ['Enlightened Tutor', 1], ['Flash', 7], ['Forth Eorlingas!', 1], ['Gifts Ungiven', 1], ['Imperial Seal', 1], ['Intuition', 1], ['Mana Crypt', 5], ['Mana Drain', 1], ['Mana Vault', 1], ['Merchant Scroll', 1], ['Mox Emerald', 3], ['Mox Jet', 3], ['Mox Pearl', 3], ['Mox Ruby', 3], ['Mox Sapphire', 3], ['Mystical Tutor', 2], ['Nadu, Winged Wisdom', 1], ['Natural Order', 1], ['Psychic Frog', 1], ['Reanimate', 1], ['Sol Ring', 3], ['Spellseeker', 1], ['Strip Mine', 1], ['Tainted Pact', 1], ['Tamiyo, Inquisitive Student', 1], ["Thassa's Oracle", 5], ['The Fantasticar', 1], ['The One Ring', 1], ['Time Vault', 7], ['Time Walk', 5], ['Tinker', 3], ['Tolarian Academy', 2], ['Treasure Cruise', 1], ['True-Name Nemesis', 1], ['Underworld Breach', 3], ["Urza's Saga", 1], ['Vampiric Tutor', 2], ['White Plume Adventurer', 1], ['Wishclaw Talisman', 1], ['Wrenn and Six', 1],
 ];
-export const DEFAULT_FORMAT_IDS = ['kitchen-table', 'singleton-workshop', '2015-modern', 'prefire', 'commander', 'modern', 'canadian-highlander'];
+export const DEFAULT_FORMAT_IDS = ['kitchen-table', '2015-modern', 'prefire', 'commander', 'modern', 'canadian-highlander'];
 export const isDefaultFormat = (id: string) => DEFAULT_FORMAT_IDS.includes(id);
 export function defaultFormats(): Format[] {
   const base = { minCards: 60, maxCards: null, minSideboard: 0, maxSideboard: 15, copyLimit: 4, basicLandExemption: true, commanderRules: false };
@@ -31,15 +31,16 @@ export function defaultFormats(): Format[] {
   ];
 }
 export function builtInFormats(): Format[] {
-  const base = { description: '', minCards: 60, maxCards: null, minSideboard: 0, maxSideboard: 15, copyLimit: 4, basicLandExemption: true, commanderRules: false, normalOnly: true, allowedSets: [] as string[], banned: [] as string[] };
   return [
-    { ...base, id: 'kitchen-table', name: 'Kitchen table' },
-    { ...base, id: 'singleton-workshop', name: 'Singleton', maxCards: 60, maxSideboard: 0, copyLimit: 1 },
+    { id: 'kitchen-table', name: 'Kitchen table', description: 'no restrictions at all', minCards: 0, maxCards: null, minSideboard: 0, maxSideboard: null, copyLimit: null, basicLandExemption: true, commanderRules: false, checkCardRoles: false, normalOnly: false, banTournamentIllegal: false, allowUnCards: true, gameplayOnly: true, eternal: true, allowedSets: [], banned: ['Invoke Prejudice', 'Cleanse', 'Stone-Throwing Devils', 'Pradesh Gypsies', 'Jihad', 'Imprison', 'Crusade'] },
     ...defaultFormats(),
   ];
 }
 export function addDefaultFormats(library: Library): Library {
-  const missing = builtInFormats().filter(format => !library.formats.some(existing => existing.id === format.id));
-  if (!missing.length && library.defaultsVersion === 4) return library;
-  return { ...library, formats: [...library.formats, ...missing], defaultsVersion: 4 };
+  const defaults = builtInFormats();
+  const missing = defaults.filter(format => !library.formats.some(existing => existing.id === format.id));
+  if (!missing.length && library.defaultsVersion === 5) return library;
+  // Keep the old Singleton rules when decks still reference them, as a custom format.
+  const formats = library.formats.filter(format => format.id !== 'singleton-workshop' || library.decks.some(deck => deck.formatId === format.id)).map(format => format.id === 'kitchen-table' ? defaults[0] : format);
+  return { ...library, formats: [...formats, ...missing], defaultsVersion: 5 };
 }

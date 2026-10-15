@@ -76,9 +76,9 @@ test('presets have the correct cutoff sets and distinct bans', () => {
 test('default upgrade adds protected presets once and preserves edits', () => {
   const old = { ...createLibrary(), defaultsVersion: undefined, formats: createLibrary().formats.slice(0, 2) };
   const upgraded = addDefaultFormats(old);
-  assert.equal(upgraded.formats.length, 7);
+  assert.equal(upgraded.formats.length, 6);
   upgraded.formats = upgraded.formats.filter(f => f.id !== 'prefire');
-  assert.equal(addDefaultFormats(upgraded).formats.length, 7);
+  assert.equal(addDefaultFormats(upgraded).formats.length, 6);
   const custom = { ...old, formats: [{ ...defaultFormats()[0], minCards: 42 }] };
   assert.equal(addDefaultFormats(custom).formats.find(f => f.id === '2015-modern')!.minCards, 42);
 });
@@ -127,7 +127,7 @@ test('hidden zones survive backups without excluding their cards from decks or e
   assert.deepEqual(restored.layout!.hiddenZones, ['side', 'considering']);
   assert.equal(countCards(restored, 'side'), 4); assert.equal(countCards(restored, 'considering'), 2);
   assert.equal(deckText(restored, 'extended'), before);
-  assert.ok(validateDeck(restored, { ...library.formats[0], normalOnly: false, minCards: 1 }).some(issue => /5 copies/.test(issue)));
+  assert.ok(validateDeck(restored, { ...library.formats[0], gameplayOnly: false, normalOnly: false, minCards: 1, copyLimit: 4 }).some(issue => /5 copies/.test(issue)));
   const invalid = JSON.parse(JSON.stringify(library)); invalid.decks[0].layout.hiddenZones = ['invalid-section'];
   assert.throws(() => parseLibrary(JSON.stringify(invalid)));
 });

@@ -2,7 +2,7 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import SplitPane from './SplitPane.svelte';
   import AdvancedSearch from './AdvancedSearch.svelte';
-  import { normalizeName, ruleCardName, ZONE_NAMES, ZONES } from '../lib/model';
+  import { normalizeName, ruleCardName, tournamentOnly, ZONE_NAMES, ZONES } from '../lib/model';
   import type { CardInfo, Format, Zone } from '../lib/model';
   import { buildSearchQuery, cardInfo, emptyFilters, searchCards, filterFormatCards, searchLegalPool, legalPoolQuery, legalPoolBatches } from '../lib/scryfall';
   import type { ScryfallCard, SearchOptions } from '../lib/scryfall';
@@ -38,9 +38,11 @@
   let debounce: ReturnType<typeof setTimeout> | undefined, firstLoad = true;
   const poolFormat = $derived(mode === 'deck' && onlyFormat ? format : undefined);
   const exactQuery = $derived.by(() => { try { const base = buildSearchQuery(query, filters, poolFormat); return poolFormat?.whitelistOnly ? activeQuery || legalPoolQuery(base, legalPoolBatches(base, poolFormat.allowedCards ?? [])[0] ?? []) : base; } catch (e) { return e instanceof Error ? e.message : 'Invalid query'; } });
+  const requiredTournament = $derived(poolFormat ? tournamentOnly(poolFormat) : false);
+  const includeUnCards = $derived(requiredTournament ? !!poolFormat?.allowUnCards : filters.includeUnCards);
   const banned = $derived(new Set(bannedNames.map(ruleCardName)));
 
-  $effect(() => { const listPool = poolFormat?.whitelistOnly; untrack(() => { if (listPool) filters.normalOnly = false; }); });
+  $effect(() => { const listPool = poolFormat?.whitelistOnly || poolFormat?.gameplayOnly; untrack(() => { if (listPool) filters.normalOnly = false; }); });
   $effect(() => {
     // Search on initial load, filter changes, and clearing the query.
     try {
@@ -83,6 +85,7 @@
   {#if onclose}<div class="search-pane-heading"><h2>Search</h2><button class="section-close" aria-label="Close search" title="Close search" onclick={onclose}>×</button></div>{/if}
   <div class="search-options-popover" id={`${uid}-options`} popover="auto" onbeforetoggle={positionOptions} style:left={`${optionsLeft}px`} style:top={`${optionsTop}px`}>
     <label>Card images<select aria-label="Card image size" bind:value={imageSize}><option value="220">Large images</option><option value="180">Medium images</option><option value="140">Small images</option></select></label>
+    <label class="checkbox-label" title="Allow silver-bordered and acorn-stamped cards while keeping other non-tournament cards excluded"><input type="checkbox" checked={includeUnCards} disabled={requiredTournament || !filters.normalOnly} onchange={(e) => filters.includeUnCards = e.currentTarget.checked} /> Include Un-cards (silver border / acorn)</label>
     <label class="checkbox-label"><input type="checkbox" bind:checked={filters.includeTokens} /> Include tokens</label>
     {#if mode === 'deck'}<label>Add to<select bind:value={target}><optgroup label="Boards">{#each ZONES.filter(z => ['main', 'side', 'considering'].includes(z)) as z}<option value={z}>{ZONE_NAMES[z]}</option>{/each}</optgroup><optgroup label="Card roles">{#each ZONES.filter(z => !['main', 'side', 'considering'].includes(z)) as z}<option value={z}>{ZONE_NAMES[z]}</option>{/each}</optgroup></select></label>{/if}
     {#if onmanual}<details class="manual-search-add"><summary>Add by name</summary><form class="manual-add" onsubmit={(e) => { e.preventDefault(); onmanual?.(manualName, manualQuantity, target); manualName = ''; }}><input aria-label="Card name" bind:value={manualName} required maxlength="200" placeholder="Exact card name" /><input aria-label="Copies" type="number" min="1" max="999" bind:value={manualQuantity} required /><button class="secondary" type="submit">Add</button></form></details>{/if}
@@ -93,7 +96,7 @@
   <form bind:this={searchForm} class="search-controls" onsubmit={(e) => { e.preventDefault(); search(); }}>
     <div bind:this={controlsContent} class="search-control-content">
     <div class="search-input-row"><label class="sr-only" for={`${uid}-query`}>Scryfall search</label><input id={`${uid}-query`} bind:value={query} placeholder="Search cards or use Scryfall syntax…" type="search" /><button class="primary" type="submit">Search</button></div>
-    <div class="search-pool-controls">{#if mode === 'deck' && format}<label class="checkbox-label"><input type="checkbox" bind:checked={onlyFormat} /> Format card pool</label>{/if}<label class="checkbox-label" title="Uses cards legal or restricted in Vintage, without applying Vintage copy limits"><input type="checkbox" checked={filters.normalOnly || !!(poolFormat?.normalOnly && !poolFormat.whitelistOnly)} disabled={!!(poolFormat?.normalOnly && !poolFormat.whitelistOnly)} onchange={(e) => filters.normalOnly = e.currentTarget.checked} /> Tournament-legal cards only{(poolFormat?.normalOnly && !poolFormat.whitelistOnly) ? ' (format rule)' : ''}</label></div>
+    <div class="search-pool-controls">{#if mode === 'deck' && format}<label class="checkbox-label"><input type="checkbox" bind:checked={onlyFormat} /> Format card pool</label>{/if}<label class="checkbox-label" title="Uses Vintage-legal or restricted cards, with an optional Un-card exception; Vintage copy limits are not applied"><input type="checkbox" checked={filters.normalOnly || requiredTournament} disabled={requiredTournament} onchange={(e) => filters.normalOnly = e.currentTarget.checked} /> Tournament cards{includeUnCards ? ' + Un-cards' : ' only'}{requiredTournament ? ' (format rule)' : ''}</label></div>
     <div class="search-tools"><label class="search-sort">Sort<select aria-label="Sort results" bind:value={order}><option value="name">Name</option><option value="cmc">Mana value</option><option value="color">Color</option><option value="rarity">Rarity</option><option value="released">Release date</option><option value="usd">Price</option><option value="edhrec">Popularity</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="artist">Artist</option><option value="set">Set</option></select></label><button class="secondary search-options-button" bind:this={optionsButton} type="button" popovertarget={`${uid}-options`}>Options</button><button class="quiet search-clear" type="button" onclick={() => { query = ''; filters = emptyFilters(); unique = 'cards'; direction = 'auto'; extras = true; }}>Clear</button></div>
     <AdvancedSearch bind:filters bind:unique bind:direction {exactQuery} excludedNames={poolFormat?.banned ?? []} legalList={!!poolFormat?.whitelistOnly} />
     </div>

@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addCard, countCards, createLibrary, deckSize, sideboardSize, deckText, moveCard, parseCardNames, parseDeckText, parseLibrary, setLegality, validateDeck, visibleZones } from '../src/lib/model.ts';
+import { addCard, countCards, blankFormat, createLibrary, deckSize, sideboardSize, deckText, moveCard, parseCardNames, parseDeckText, parseLibrary, setLegality, validateDeck, visibleZones } from '../src/lib/model.ts';
 import type { CardInfo, Deck, Format } from '../src/lib/model.ts';
 
-const format = (): Format => ({ ...createLibrary().formats[0], normalOnly: false, minCards: 1 });
+const format = (): Format => ({ ...blankFormat(), normalOnly: false, minCards: 1 });
 const deck = (): Deck => ({ id: 'deck-1', name: 'Test deck', formatId: 'kitchen-table', notes: '', updatedAt: '2026-01-01T00:00:00.000Z', cards: [] });
 
 test('copy limits include mainboard and sideboard and ignore case', () => {
@@ -67,6 +67,7 @@ test('imports reject unknown versions, dangling formats, and duplicate IDs', () 
 
 test('imports reject invalid ranges, quantities, and duplicate card entries', () => {
   const library = createLibrary();
+  library.formats[0].minCards = 60;
   library.formats[0].maxCards = 59;
   assert.throws(() => parseLibrary(JSON.stringify(library)));
   library.formats[0].maxCards = null;
@@ -234,6 +235,7 @@ test('backups preserve card metadata and reject impossible sideboard ranges', ()
   const library = createLibrary();
   library.decks = [addCard(deck(), 'Commander', 1, 'commander', info())];
   assert.equal(parseLibrary(JSON.stringify(library)).decks[0].cards[0].info?.scryfallId, 'card-1');
+  library.formats[0].maxSideboard = 15;
   library.formats[0].minSideboard = 16;
   assert.throws(() => parseLibrary(JSON.stringify(library)));
 });

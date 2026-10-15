@@ -1,11 +1,12 @@
 import { scryfallClient, ApiError, CACHE_TTL } from './scryfall-client.ts';
-import { normalizeName, RARITIES, tournamentOnly } from './model.ts';
+import { normalizeName, RARITIES, tournamentOnly, validReleaseDate, inReleaseRange, setLegality } from './model.ts';
 import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
 
 export interface ScryfallCard {
   id: string; oracle_id?: string; name: string; set: string; set_name?: string; released_at?: string; collector_number: string;
   type_line: string; oracle_text?: string; mana_cost?: string; color_identity: string[];
   legalities?: Record<string, string>;
+  border_color?: string; security_stamp?: string | null; layout?: string;
   artist?: string; power?: string; toughness?: string; edhrec_rank?: number; cmc?: number; colors?: string[]; rarity?: string; prices?: { usd?: string | null; usd_foil?: string | null };
   image_uris?: { normal: string; small: string };
   card_faces?: { name: string; colors?: string[]; oracle_text?: string; mana_cost?: string; image_uris?: { normal: string; small: string } }[];
@@ -18,10 +19,20 @@ export interface SearchFilters {
   manaCost: string; manaValue: string; power: string; toughness: string; loyalty: string;
   rarity: string; sets: string; block: string; legalFormat: string; legality: 'legal' | 'banned' | 'restricted';
   artist: string; flavor: string; language: string; game: string; border: string;
-  normalOnly: boolean; includeTokens: boolean;
+  normalOnly: boolean; includeTokens: boolean; includeUnCards: boolean;
   releasedAfter: string; releasedBefore: string; price: string; currency: 'usd' | 'eur' | 'tix';
 }
-export const emptyFilters = (): SearchFilters => ({ name: '', type: '', typeMode: 'all', excludeType: '', oracle: '', colors: '', colorMode: '<=', identity: '', identityMode: '<=', manaCost: '', manaValue: '', power: '', toughness: '', loyalty: '', rarity: '', sets: '', block: '', legalFormat: '', legality: 'legal', artist: '', flavor: '', language: '', game: '', border: '', releasedAfter: '', releasedBefore: '', price: '', currency: 'usd', normalOnly: true, includeTokens: false });
+export const emptyFilters = (): SearchFilters => ({ name: '', type: '', typeMode: 'all', excludeType: '', oracle: '', colors: '', colorMode: '<=', identity: '', identityMode: '<=', manaCost: '', manaValue: '', power: '', toughness: '', loyalty: '', rarity: '', sets: '', block: '', legalFormat: '', legality: 'legal', artist: '', flavor: '', language: '', game: '', border: '', releasedAfter: '', releasedBefore: '', price: '', currency: 'usd', normalOnly: true, includeTokens: false, includeUnCards: false });
+const UN_CARD_QUERY = '((border:silver or stamp:acorn) -t:card -t:token -t:emblem -layout:art_series)';
+export function isGameCard(card: ScryfallCard): boolean {
+  return !['token', 'double_faced_token', 'emblem', 'art_series'].includes(card.layout ?? '')
+    && !/\bToken\b|^(?:Card|Emblem|Art Series)(?:$|\s*(?:—|-|\/\/))/i.test(card.type_line);
+}
+export function isUnCard(card: ScryfallCard): boolean {
+  return (card.border_color === 'silver' || card.security_stamp === 'acorn')
+    && !['token', 'double_faced_token', 'emblem', 'art_series'].includes(card.layout ?? '')
+    && !/\bToken\b|^(?:Card|Emblem|Art Series)(?:$|\s*(?:—|-|\/\/))/i.test(card.type_line);
+}
 export const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 export function rulesTextTerms(value: string): string[] {
   if (!/[",]/.test(value)) return value.trim() ? [value.trim()] : [];
@@ -46,8 +57,14 @@ export function buildSearchQuery(query: string, filters: SearchFilters, format?:
   if (filters.excludeType.trim()) parts.push(...filters.excludeType.trim().split(/\s+/).map(t => `-t:${quote(t)}`));
   parts.push(...rulesTextTerms(filters.oracle).map(term => `o:${quote(term)}`));
   if (!filters.includeTokens) parts.push('-t:token');
+  if (format?.gameplayOnly) parts.push('-t:card -t:token -t:emblem -layout:art_series');
   const requireTournament = format ? tournamentOnly(format) : false;
-  if (filters.normalOnly || requireTournament) parts.push(`(legal:vintage or restricted:vintage${filters.includeTokens && !requireTournament ? ' or t:token' : ''})`);
+  if (filters.normalOnly || requireTournament) {
+    const eligibility = ['legal:vintage', 'restricted:vintage'];
+    if (requireTournament ? format?.allowUnCards : filters.includeUnCards) eligibility.push(UN_CARD_QUERY);
+    if (filters.includeTokens && !requireTournament) eligibility.push('t:token');
+    parts.push(`(${eligibility.join(' or ')})`);
+  }
   if (format?.officialFormat === 'modern' && !format.whitelistOnly) parts.push('legal:modern');
   if (format?.minCardPrice !== undefined) parts.push(`usd>=${format.minCardPrice}`);
   if (format?.maxCardPrice !== undefined) parts.push(`usd<=${format.maxCardPrice}`);
@@ -78,7 +95,9 @@ export function buildSearchQuery(query: string, filters: SearchFilters, format?:
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('Enter a valid release date.');
     parts.push(`date${operator}${date}`);
   }
-  if (!format?.whitelistOnly && !format?.eternal && format?.allowedSets.length) parts.push(`(${format.allowedSets.map(c => `set:${c}`).join(' or ')})`);
+  if (format?.releasedAfter) parts.push(`date>=${format.releasedAfter}`);
+  if (format?.releasedBefore) parts.push(`date<=${format.releasedBefore}`);
+  if (!format?.whitelistOnly && !format?.officialFormat && !format?.eternal && format?.allowedSets.length) parts.push(`(${format.allowedSets.map(c => `set:${c}`).join(' or ')})`);
   // Exact-name bans are applied to returned cards, not embedded in Scryfall's
   // grammar. Names and punctuation must never break a format's API query.
   if (!format?.whitelistOnly && format?.bannedRarities?.length) {
@@ -115,15 +134,15 @@ export function loadSets(): Promise<ScryfallSet[]> {
 export function cardInfo(card: ScryfallCard): CardInfo {
   const rawPrice = card.prices?.usd ?? card.prices?.usd_foil;
   const price = rawPrice != null ? Number(rawPrice) : null;
-  return { ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), ...(card.legalities?.modern ? { modernLegality: card.legalities.modern } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
+  return { isGameCard: isGameCard(card), isUnCard: isUnCard(card), ...(validReleaseDate(card.released_at) ? { releasedAt: card.released_at } : {}), ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), ...(card.legalities?.modern ? { modernLegality: card.legalities.modern } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
     image: card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal,
     backImage: card.card_faces?.[1]?.image_uris?.normal, typeLine: card.type_line,
     oracleText: card.oracle_text ?? card.card_faces?.map(f => f.oracle_text ?? '').join('\n') ?? '',
     manaCost: card.mana_cost ?? card.card_faces?.map(f => f.mana_cost ?? '').join(' // ') ?? '', colorIdentity: card.color_identity,
     manaValue: card.cmc ?? null, colors: card.colors ?? [...new Set(card.card_faces?.flatMap(f => f.colors ?? []) ?? [])], rarity: card.rarity ?? 'unknown', priceUSD: price !== null && Number.isFinite(price) ? price : null, checkedAt: new Date().toISOString() };
 }
-const printingCache = new Map<string, { at: number; promise: Promise<{ printSets: string[]; printRarities: string[] }> }>();
-async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{ printSets: string[]; printRarities: string[] }> {
+const printingCache = new Map<string, { at: number; promise: Promise<{ printSets: string[]; printRarities: string[]; printReleases?: { set: string; date: string }[] }> }>();
+async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{ printSets: string[]; printRarities: string[]; printReleases?: { set: string; date: string }[] }> {
   const key = card.oracle_id ?? normalizeName(card.name);
   const cached = printingCache.get(key);
   let promise = cached && Date.now() - cached.at < CACHE_TTL ? cached.promise : undefined;
@@ -131,13 +150,14 @@ async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{
     promise = (async () => {
       const query = card.oracle_id ? `oracleid:${card.oracle_id}` : `!${quote(card.name)}`;
       let next: string | undefined = `https://api.scryfall.com/cards/search?${new URLSearchParams({ q: query, unique: 'prints', include_extras: 'true' })}`;
-      const sets = new Set<string>(), rarities = new Set<string>();
+      let completeReleases = true;
+      const sets = new Set<string>(), rarities = new Set<string>(), releases = new Map<string, { set: string; date: string }>();
       while (next) {
         const page: SearchResult = await request<SearchResult>(next, signal);
-        for (const print of page.data) { sets.add(print.set); if (RARITIES.includes(print.rarity as Rarity)) rarities.add(print.rarity!); }
+        for (const print of page.data) { if (validReleaseDate(print.released_at)) releases.set(`${print.set}:${print.released_at}`, { set: print.set, date: print.released_at }); else completeReleases = false; sets.add(print.set); if (RARITIES.includes(print.rarity as Rarity)) rarities.add(print.rarity!); }
         next = page.has_more ? page.next_page : undefined;
       }
-      return { printSets: [...sets], printRarities: [...rarities] };
+      return { printSets: [...sets], printRarities: [...rarities], ...(completeReleases ? { printReleases: [...releases.values()] } : {}) };
     })().catch(error => { if (!signal) printingCache.delete(key); throw error; });
     if (printingCache.size >= 500) printingCache.delete(printingCache.keys().next().value!);
     // Abortable consumers share completed results, not another consumer's signal.
@@ -147,7 +167,7 @@ async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{
   if (signal) printingCache.set(key, { at: Date.now(), promise: Promise.resolve(result) });
   return result;
 }
-export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?: AbortSignal): Promise<CardInfo> {
+export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<CardInfo> {
   signal?.throwIfAborted();
   let card: ScryfallCard;
   if (entry.info?.scryfallId) card = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.scryfallId)}`, signal);
@@ -163,7 +183,8 @@ export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?:
   }
   signal?.throwIfAborted();
   const info = cardInfo(card);
-  return needsSets ? { ...info, ...await printingSets(card, signal), setsComplete: true, checkedAt: new Date().toISOString() } : info;
+  const needsHistory = needsSets && (!eligibilityFormat || setLegality({ ...entry, info }, eligibilityFormat) === 'unknown' || !eligibilityFormat.whitelistOnly && !!eligibilityFormat.bannedRarities?.length);
+  return needsHistory ? { ...info, ...await printingSets(card, signal), setsComplete: true, checkedAt: new Date().toISOString() } : info;
 }
 
 const editionsCache = new Map<string, { at: number; promise: Promise<ScryfallCard[]> }>();
@@ -196,9 +217,11 @@ export function filterFormatCards(cards: ScryfallCard[], format?: Format): Scryf
   const allowed = format?.whitelistOnly ? new Set((format.allowedCards ?? []).map(normalizeName)) : undefined;
   return cards.filter(card => {
     const names = [card.name, ...card.card_faces?.map(f => f.name) ?? []].map(normalizeName);
+    if (format && card.released_at && !inReleaseRange(card.released_at, format)) return false;
     if (names.some(name => banned.has(name)) || allowed && !names.some(name => allowed.has(name))) return false;
     if (format?.officialFormat === 'modern' && !format.whitelistOnly && card.legalities?.modern && !['legal', 'restricted'].includes(card.legalities.modern)) return false;
-    if (format && tournamentOnly(format) && card.legalities?.vintage && !['legal', 'restricted'].includes(card.legalities.vintage)) return false;
+    if (format?.gameplayOnly && !isGameCard(card)) return false;
+    if (format && tournamentOnly(format) && card.legalities?.vintage && !['legal', 'restricted'].includes(card.legalities.vintage) && !(format.allowUnCards && isUnCard(card))) return false;
     return true;
   });
 }
