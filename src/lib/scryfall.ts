@@ -1,5 +1,5 @@
 import { scryfallClient, ApiError, CACHE_TTL } from './scryfall-client.ts';
-import { normalizeName, RARITIES, tournamentOnly, validReleaseDate, inReleaseRange, setLegality } from './model.ts';
+import { normalizeName, RARITIES, OFFICIAL_FORMAT_NAMES, tournamentOnly, validReleaseDate, inReleaseRange, setLegality } from './model.ts';
 import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
 
 export interface ScryfallCard {
@@ -50,7 +50,7 @@ export function rulesTextTerms(value: string): string[] {
   flush(); return terms;
 }
 
-export function buildSearchQuery(query: string, filters: SearchFilters, format?: Format): string {
+export function buildSearchQuery(query: string, filters: SearchFilters, format?: Format, target?: string): string {
   const parts: string[] = query.trim() ? [`(${query.trim()})`] : [];
   if (filters.name.trim()) parts.push(`name:${quote(filters.name.trim())}`);
   if (filters.type.trim()) parts.push(`(${filters.type.trim().split(/\s+/).map(t => `t:${quote(t)}`).join(filters.typeMode === 'any' ? ' or ' : ' ')})`);
@@ -59,13 +59,16 @@ export function buildSearchQuery(query: string, filters: SearchFilters, format?:
   if (!filters.includeTokens) parts.push('-t:token');
   if (format?.gameplayOnly) parts.push('-t:card -t:token -t:emblem -layout:art_series');
   const requireTournament = format ? tournamentOnly(format) : false;
-  if (filters.normalOnly || requireTournament) {
+  if (filters.normalOnly && (!format?.officialFormat || format.whitelistOnly) || requireTournament) {
     const eligibility = ['legal:vintage', 'restricted:vintage'];
     if (requireTournament ? format?.allowUnCards : filters.includeUnCards) eligibility.push(UN_CARD_QUERY);
     if (filters.includeTokens && !requireTournament) eligibility.push('t:token');
     parts.push(`(${eligibility.join(' or ')})`);
   }
-  if (format?.officialFormat === 'modern' && !format.whitelistOnly) parts.push('legal:modern');
+  if (format?.officialFormat && !format.whitelistOnly) {
+    if (format.officialFormat === 'paupercommander' && target === 'commander') parts.push('is:paupercommander');
+    else parts.push(format.officialFormat === 'vintage' ? '(legal:vintage or restricted:vintage)' : `legal:${format.officialFormat}`);
+  }
   if (format?.minCardPrice !== undefined) parts.push(`usd>=${format.minCardPrice}`);
   if (format?.maxCardPrice !== undefined) parts.push(`usd<=${format.maxCardPrice}`);
   if (filters.colors) parts.push(`c${filters.colorMode}${filters.colors}`);
@@ -134,7 +137,7 @@ export function loadSets(): Promise<ScryfallSet[]> {
 export function cardInfo(card: ScryfallCard): CardInfo {
   const rawPrice = card.prices?.usd ?? card.prices?.usd_foil;
   const price = rawPrice != null ? Number(rawPrice) : null;
-  return { isGameCard: isGameCard(card), isUnCard: isUnCard(card), ...(validReleaseDate(card.released_at) ? { releasedAt: card.released_at } : {}), ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), ...(card.legalities?.modern ? { modernLegality: card.legalities.modern } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
+  return { legalities: Object.fromEntries(Object.keys(OFFICIAL_FORMAT_NAMES).filter(key => card.legalities?.[key]).map(key => [key, card.legalities![key]])) as CardInfo['legalities'], isGameCard: isGameCard(card), isUnCard: isUnCard(card), ...(validReleaseDate(card.released_at) ? { releasedAt: card.released_at } : {}), ...(card.set_name ? { setName: card.set_name } : {}), ...(card.legalities?.vintage ? { vintageLegality: card.legalities.vintage } : {}), ...(card.legalities?.modern ? { modernLegality: card.legalities.modern } : {}), scryfallId: card.id, oracleId: card.oracle_id, set: card.set, collectorNumber: card.collector_number,
     image: card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal,
     backImage: card.card_faces?.[1]?.image_uris?.normal, typeLine: card.type_line,
     oracleText: card.oracle_text ?? card.card_faces?.map(f => f.oracle_text ?? '').join('\n') ?? '',
@@ -212,14 +215,14 @@ export function latestOracle(name: string): Promise<CardInfo> {
   oracleCache.set(key, { at: Date.now(), promise }); return promise;
 }
 
-export function filterFormatCards(cards: ScryfallCard[], format?: Format): ScryfallCard[] {
+export function filterFormatCards(cards: ScryfallCard[], format?: Format, target?: string): ScryfallCard[] {
   const banned = new Set(format?.banned.map(normalizeName) ?? []);
   const allowed = format?.whitelistOnly ? new Set((format.allowedCards ?? []).map(normalizeName)) : undefined;
   return cards.filter(card => {
     const names = [card.name, ...card.card_faces?.map(f => f.name) ?? []].map(normalizeName);
     if (format && card.released_at && !inReleaseRange(card.released_at, format)) return false;
     if (names.some(name => banned.has(name)) || allowed && !names.some(name => allowed.has(name))) return false;
-    if (format?.officialFormat === 'modern' && !format.whitelistOnly && card.legalities?.modern && !['legal', 'restricted'].includes(card.legalities.modern)) return false;
+    if (format?.officialFormat && !format.whitelistOnly && !(format.officialFormat === 'paupercommander' && target === 'commander') && card.legalities?.[format.officialFormat] && !['legal', 'restricted'].includes(card.legalities[format.officialFormat])) return false;
     if (format?.gameplayOnly && !isGameCard(card)) return false;
     if (format && tournamentOnly(format) && card.legalities?.vintage && !['legal', 'restricted'].includes(card.legalities.vintage) && !(format.allowUnCards && isUnCard(card))) return false;
     return true;

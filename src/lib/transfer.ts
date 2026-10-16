@@ -77,7 +77,7 @@ export function planImport(library: Library, files: TransferFile[]): ImportPlan 
       const names = new Set([...library.formats, ...plan.newFormats].map(format => normalizeName(format.name)));
       let name = format.name, suffix = 1;
       while (names.has(normalizeName(name))) name = `${format.name.slice(0, 180)} (imported${suffix++ === 1 ? '' : ` ${suffix - 1}`})`;
-      const copy = { ...clone(format), id: crypto.randomUUID(), name }; plan.newFormats.push(copy); plan.targets[refKey(index, format.id)] = copy.id;
+      const copy = { ...clone(format), id: crypto.randomUUID(), name, tags: (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default') }; plan.newFormats.push(copy); plan.targets[refKey(index, format.id)] = copy.id;
     }
   }
   for (const [index, file] of files.entries()) for (const ref of file.formatRefs) {

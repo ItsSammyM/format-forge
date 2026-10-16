@@ -6,6 +6,9 @@ export const UI_SECTIONS: UISection[] = [...ZONES, 'search'];
 export const ZONE_NAMES: Record<Zone, string> = { main: 'Deck', side: 'Sideboard', considering: 'Considering', commander: 'Commander', companion: 'Companion', conspiracy: 'Conspiracy' };
 export const RARITIES = ['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'] as const;
 export type Rarity = typeof RARITIES[number];
+export const OFFICIAL_FORMAT_NAMES = { modern: 'Modern', commander: 'Commander', legacy: 'Legacy', vintage: 'Vintage', pauper: 'Pauper', pioneer: 'Pioneer', premodern: 'Premodern', paupercommander: 'Pauper EDH' } as const;
+export type OfficialFormat = keyof typeof OFFICIAL_FORMAT_NAMES;
+export type CardLegality = 'legal' | 'restricted' | 'banned' | 'not_legal';
 export interface Format {
   id: string; name: string; description: string;
   minCards: number; maxCards: number | null;
@@ -15,13 +18,13 @@ export interface Format {
   whitelistOnly?: boolean; allowedCards?: string[]; normalOnly?: boolean; bannedRarities?: Rarity[]; restricted?: { name: string; limit: number }[];
   pointed?: { name: string; points: number }[]; maxPoints?: number;
   eternal?: boolean; bannedTypes?: string[]; bannedCompanions?: string[];
-  banTournamentIllegal?: boolean; officialFormat?: 'modern';
+  banTournamentIllegal?: boolean; officialFormat?: OfficialFormat;
   allowUnCards?: boolean; gameplayOnly?: boolean; checkCardRoles?: boolean;
   minCardPrice?: number; maxCardPrice?: number; minDeckPrice?: number; maxDeckPrice?: number;
-  releasedAfter?: string; releasedBefore?: string;
+  releasedAfter?: string; releasedBefore?: string; tags?: string[]; commanderAnyCreature?: boolean;
 }
 export interface CardInfo {
-  scryfallId: string; oracleId?: string; setName?: string; vintageLegality?: string; modernLegality?: string; printRarities?: string[]; set: string; collectorNumber: string;
+  scryfallId: string; oracleId?: string; setName?: string; vintageLegality?: string; modernLegality?: string; legalities?: Partial<Record<OfficialFormat, CardLegality>>; printRarities?: string[]; set: string; collectorNumber: string;
   image?: string; backImage?: string; typeLine: string; oracleText: string;
   colorIdentity: string[]; manaCost: string;
   printSets?: string[]; setsComplete?: boolean; checkedAt?: string;
@@ -37,7 +40,7 @@ export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction
 export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; special?: Partial<Record<Zone, number>> }
 export interface CardEntry { id: string; name: string; quantity: number; zone: Zone; info?: CardInfo; tags?: string[] }
 export interface Deck { id: string; name: string; formatId: string; notes: string; cards: CardEntry[]; updatedAt: string; views?: Partial<Record<Zone, BoardView>>; layout?: DeckLayout; tags?: string[] }
-export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
+export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
 export const STORAGE_KEY = 'mtg-format-forge.library.v1';
 export const normalizeName = (name: string) => name.trim().toLocaleLowerCase('en-US');
 export const ruleCardName = (name: string) => normalizeName(name.split(' // ')[0]);
@@ -50,9 +53,9 @@ export function blankFormat(): Format {
   return { id: crypto.randomUUID(), name: '', description: '', minCards: 60, maxCards: null, minSideboard: 0, maxSideboard: 15, copyLimit: 4, basicLandExemption: true, banned: [], allowedSets: [], commanderRules: false, normalOnly: true };
 }
 export function createLibrary(): Library {
-  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 5 };
+  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 10 };
 }
-export const tournamentOnly = (format: Format) => format.banTournamentIllegal ?? (!format.whitelistOnly && !!format.normalOnly);
+export const tournamentOnly = (format: Format) => format.banTournamentIllegal ?? (!format.whitelistOnly && !format.officialFormat && !!format.normalOnly);
 export function tournamentEligibility(card: CardEntry, format: Format): 'legal' | 'illegal' | 'unknown' {
   if (!tournamentOnly(format)) return 'legal';
   if (format.allowUnCards && card.info?.isUnCard) return 'legal';
@@ -81,19 +84,30 @@ export function parseFormatText(raw: string): Format[] {
   if (!library.formats.length || library.decks.length) throw new Error('Choose a standalone format export, not a deck-library backup.');
   return library.formats;
 }
+export function officialLegality(card: Pick<CardEntry, 'info'>, format: Format): string | undefined {
+  const key = format.officialFormat;
+  if (!key || format.whitelistOnly) return undefined;
+  return card.info?.legalities?.[key] ?? (key === 'modern' ? card.info?.modernLegality : key === 'vintage' ? card.info?.vintageLegality : undefined);
+}
+function copyRestriction(deck: Deck, format: Format, key: string): number | undefined {
+  const named = format.restricted?.find(card => ruleCardName(card.name) === key)?.limit;
+  const official = deck.cards.some(card => card.zone !== 'considering' && ruleCardName(card.name) === key && officialLegality(card, format) === 'restricted');
+  return official ? Math.min(named ?? Infinity, 1) : named;
+}
 export function setLegality(card: CardEntry, format: Format, allowedNames?: Set<string>): 'legal' | 'illegal' | 'unknown' {
   if (format.whitelistOnly) { const allowed = allowedNames ?? new Set((format.allowedCards ?? []).map(normalizeName)); if (![card.name, ...card.name.split(' // ')].some(name => allowed.has(normalizeName(name)))) return 'illegal'; }
-  const modern = !format.whitelistOnly && format.officialFormat === 'modern';
-  if (modern && card.info?.modernLegality && !['legal', 'restricted'].includes(card.info.modernLegality)) return 'illegal';
+  const official = !format.whitelistOnly && !!format.officialFormat;
+  const legality = officialLegality(card, format);
+  if (official && legality && !(format.officialFormat === 'paupercommander' ? legality === 'legal' : ['legal', 'restricted'].includes(legality))) return 'illegal';
   if (hasReleaseRange(format)) {
-    const eligibleSet = (set: string) => format.whitelistOnly || modern || format.eternal || !format.allowedSets.length || format.allowedSets.includes(set);
+    const eligibleSet = (set: string) => format.whitelistOnly || official || format.eternal || !format.allowedSets.length || format.allowedSets.includes(set);
     const match = card.info?.printReleases?.some(print => eligibleSet(print.set) && inReleaseRange(print.date, format))
       || card.info?.scryfallId && card.info.releasedAt && eligibleSet(card.info.set) && inReleaseRange(card.info.releasedAt, format);
-    if (match) return modern && !card.info?.modernLegality ? 'unknown' : 'legal';
+    if (match) return official && !legality ? 'unknown' : 'legal';
     return card.info?.setsComplete && card.info.printReleases !== undefined ? 'illegal' : 'unknown';
   }
   if (format.whitelistOnly) return 'legal';
-  if (modern) return card.info?.modernLegality ? 'legal' : 'unknown';
+  if (official) return legality ? 'legal' : 'unknown';
   if (format.eternal || !format.allowedSets.length || card.info?.printSets?.some(code => format.allowedSets.includes(code))) return 'legal';
   // A printing can prove legality, but cannot prove illegality without all reprints.
   if (card.info?.scryfallId && format.allowedSets.includes(card.info.set)) return 'legal';
@@ -151,22 +165,24 @@ export function validateDeck(deck: Deck, format: Format): string[] {
     }
     if (!format.whitelistOnly && format.bannedRarities?.length) {
       const rarities = card.info?.printRarities ?? (card.info?.rarity ? [card.info.rarity] : []);
-      if (!rarities.some(r => !format.bannedRarities!.includes(r as Rarity))) {
+      const allowedRarities = card.zone === 'commander' && format.commanderAnyCreature ? ['uncommon'] : RARITIES.filter(rarity => !format.bannedRarities!.includes(rarity));
+      if (!rarities.some(rarity => allowedRarities.includes(rarity as Rarity))) {
         if (card.info?.setsComplete && card.info.printRarities) issues.push(`${card.name} has no printing at an allowed rarity.`);
         else issues.push(`${card.name}: rarity eligibility not verified.`);
       }
     }
-    const legality = setLegality(card, format, allowedNames);
+    const pdhCommander = card.zone === 'commander' && format.commanderAnyCreature && card.info?.printRarities?.includes('uncommon');
+    const legality = pdhCommander ? 'legal' : setLegality(card, format, allowedNames);
     if (legality === 'unknown') unknown.add(card.name);
     if (legality === 'illegal') illegal.add(card.name);
   }
-  for (const card of illegal) issues.push(hasReleaseRange(format) ? `${card} is outside the allowed release dates or card pool.` : format.whitelistOnly ? `${card} is not in the legal card list.` : format.officialFormat ? `${card} is not legal in Modern.` : `${card} was not printed in any allowed set.`);
-  if (unknown.size) issues.push(`${hasReleaseRange(format) ? 'Card-pool' : format.officialFormat ? 'Modern' : 'Set'} legality not verified for ${unknown.size} ${unknown.size === 1 ? 'card' : 'cards'}.`);
+  for (const card of illegal) issues.push(hasReleaseRange(format) ? `${card} is outside the allowed release dates or card pool.` : format.whitelistOnly ? `${card} is not in the legal card list.` : format.officialFormat ? `${card} is not legal in ${OFFICIAL_FORMAT_NAMES[format.officialFormat]}.` : `${card} was not printed in any allowed set.`);
+  if (unknown.size) issues.push(`${hasReleaseRange(format) ? 'Card-pool' : format.officialFormat ? OFFICIAL_FORMAT_NAMES[format.officialFormat] : 'Set'} legality not verified for ${unknown.size} ${unknown.size === 1 ? 'card' : 'cards'}.`);
   for (const [key, card] of totals) {
     if (banned.has(key)) issues.push(`${card.name} is banned in this format.`);
-    const restricted = format.restricted?.find(c => ruleCardName(c.name) === key);
-    const limit = restricted ? Math.min(restricted.limit, format.copyLimit ?? Infinity) : format.copyLimit ?? Infinity;
-    if (card.quantity > limit && (restricted || !(format.basicLandExemption && basics.has(key)))) issues.push(`${card.name}: ${card.quantity} copies across deck sections; the limit is ${limit}.`);
+    const restricted = copyRestriction(deck, format, key);
+    const limit = Math.min(restricted ?? Infinity, format.copyLimit ?? Infinity);
+    if (card.quantity > limit && (restricted !== undefined || !(format.basicLandExemption && basics.has(key)))) issues.push(`${card.name}: ${card.quantity} copies across deck sections; the limit is ${limit}.`);
   }
   if (format.checkCardRoles !== false) {
     if (countCards(deck, 'companion') > 1) issues.push('Choose at most one companion.');
@@ -179,7 +195,7 @@ export function validateDeck(deck: Deck, format: Format): string[] {
     if (commanders.some(c => c.quantity !== 1)) issues.push('Each commander must have exactly one copy.');
     for (const c of commanders) {
       const pairedBackground = /background/i.test(c.info?.typeLine ?? '') && commanders.length === 2 && commanders.some(other => other.id !== c.id && /choose a background/i.test(other.info?.oracleText ?? ''));
-      if (c.info?.scryfallId && !(/legendary/i.test(c.info.typeLine) && /creature/i.test(c.info.typeLine)) && !/can be your commander/i.test(c.info.oracleText) && !pairedBackground) issues.push(`${c.name} cannot normally be a commander.`);
+      if (c.info?.scryfallId && !(format.commanderAnyCreature && /creature/i.test(c.info.typeLine) && c.info.printRarities?.includes('uncommon')) && !(/legendary/i.test(c.info.typeLine) && /creature/i.test(c.info.typeLine)) && !/can be your commander/i.test(c.info.oracleText) && !pairedBackground) issues.push(`${c.name} cannot normally be a commander.`);
     }
     if (commanders.length === 2 && commanders.every(c => c.info?.scryfallId)) {
       const [a, b] = commanders, ta = a.info!.oracleText, tb = b.info!.oracleText;
@@ -344,18 +360,20 @@ export function parseLibrary(raw: string): Library {
       || (f.normalOnly !== undefined && typeof f.normalOnly !== 'boolean') || (f.bannedRarities !== undefined && (!Array.isArray(f.bannedRarities) || !f.bannedRarities.every(r => RARITIES.includes(r as Rarity)))) || (f.restricted !== undefined && (!Array.isArray(f.restricted) || !f.restricted.every(c => object(c) && name(c.name) && num(c.limit, 1)) || new Set(f.restricted.map(c => ruleCardName((c as { name: string }).name))).size !== f.restricted.length))
       || (f.allowedSets !== undefined && !codes(f.allowedSets)) || (f.commanderRules !== undefined && typeof f.commanderRules !== 'boolean') || (f.eternal !== undefined && typeof f.eternal !== 'boolean') || (f.bannedTypes !== undefined && (!Array.isArray(f.bannedTypes) || !f.bannedTypes.every(name))) || (f.bannedCompanions !== undefined && (!Array.isArray(f.bannedCompanions) || !f.bannedCompanions.every(name)))) return fail();
     if (f.releasedAfter !== undefined && !validReleaseDate(f.releasedAfter) || f.releasedBefore !== undefined && !validReleaseDate(f.releasedBefore) || typeof f.releasedAfter === 'string' && typeof f.releasedBefore === 'string' && f.releasedAfter > f.releasedBefore) return fail();
-    for (const key of ['gameplayOnly', 'checkCardRoles']) if (f[key] !== undefined && typeof f[key] !== 'boolean') return fail();
+    if (f.tags !== undefined && (!Array.isArray(f.tags) || !f.tags.every(name) || f.tags.length > 50 || new Set(f.tags.map(normalizeName)).size !== f.tags.length)) return fail();
+    for (const key of ['gameplayOnly', 'checkCardRoles', 'commanderAnyCreature']) if (f[key] !== undefined && typeof f[key] !== 'boolean') return fail();
     if (f.allowUnCards !== undefined && typeof f.allowUnCards !== 'boolean') return fail();
-    if (f.banTournamentIllegal !== undefined && typeof f.banTournamentIllegal !== 'boolean' || f.officialFormat !== undefined && f.officialFormat !== 'modern') return fail();
+    if (f.banTournamentIllegal !== undefined && typeof f.banTournamentIllegal !== 'boolean' || f.officialFormat !== undefined && (typeof f.officialFormat !== 'string' || !Object.hasOwn(OFFICIAL_FORMAT_NAMES, f.officialFormat))) return fail();
     for (const key of ['minCardPrice', 'maxCardPrice', 'minDeckPrice', 'maxDeckPrice']) if (f[key] !== undefined && !money(f[key])) return fail();
     if (f.minCardPrice !== undefined && f.maxCardPrice !== undefined && (f.minCardPrice as number) > (f.maxCardPrice as number) || f.minDeckPrice !== undefined && f.maxDeckPrice !== undefined && (f.minDeckPrice as number) > (f.maxDeckPrice as number)) return fail();
     formatIds.add(f.id);
-    return { id: f.id, name: f.name, description: f.description, minCards: f.minCards, maxCards: f.maxCards,
+    const tags = f.tags === undefined ? undefined : normalizeTags(f.tags as string[]);
+    return { ...(tags?.length ? { tags } : {}), ...(f.commanderAnyCreature !== undefined ? { commanderAnyCreature: f.commanderAnyCreature as boolean } : {}), id: f.id, name: f.name, description: f.description, minCards: f.minCards, maxCards: f.maxCards,
       minSideboard: (f.minSideboard ?? 0) as number, maxSideboard: f.maxSideboard, copyLimit: f.copyLimit,
       ...(f.releasedAfter !== undefined ? { releasedAfter: f.releasedAfter as string } : {}), ...(f.releasedBefore !== undefined ? { releasedBefore: f.releasedBefore as string } : {}),
       ...Object.fromEntries(['gameplayOnly', 'checkCardRoles'].filter(key => f[key] !== undefined).map(key => [key, f[key]])),
       ...(f.allowUnCards !== undefined ? { allowUnCards: f.allowUnCards as boolean } : {}),
-      ...(f.banTournamentIllegal !== undefined ? { banTournamentIllegal: f.banTournamentIllegal as boolean } : {}), ...(f.officialFormat !== undefined ? { officialFormat: f.officialFormat as 'modern' } : {}),
+      ...(f.banTournamentIllegal !== undefined ? { banTournamentIllegal: f.banTournamentIllegal as boolean } : {}), ...(f.officialFormat !== undefined ? { officialFormat: f.officialFormat as OfficialFormat } : {}),
       ...Object.fromEntries(['minCardPrice', 'maxCardPrice', 'minDeckPrice', 'maxDeckPrice'].filter(key => f[key] !== undefined).map(key => [key, f[key]])),
       ...(f.maxPoints !== undefined ? { maxPoints: f.maxPoints as number } : {}), ...(f.pointed !== undefined ? { pointed: f.pointed as { name: string; points: number }[] } : {}),
       ...(f.whitelistOnly !== undefined ? { whitelistOnly: f.whitelistOnly as boolean } : {}), ...(f.allowedCards !== undefined ? { allowedCards: uniqueCardNames(f.allowedCards as string[]) } : {}),
@@ -376,12 +394,14 @@ export function parseLibrary(raw: string): Library {
     if (v.releasedAt !== undefined && !validReleaseDate(v.releasedAt) || v.printReleases !== undefined && (!Array.isArray(v.printReleases) || v.printReleases.length > 10000 || !v.printReleases.every(print => object(print) && str(print.set) && /^[a-z0-9]{2,8}$/.test(print.set) && validReleaseDate(print.date)))) return fail();
     if (v.isGameCard !== undefined && typeof v.isGameCard !== 'boolean') return fail();
     if (v.isUnCard !== undefined && typeof v.isUnCard !== 'boolean') return fail();
+    if (v.legalities !== undefined && (!object(v.legalities) || Object.entries(v.legalities).some(([key, status]) => !Object.hasOwn(OFFICIAL_FORMAT_NAMES, key) || !['legal', 'restricted', 'banned', 'not_legal'].includes(status as string)))) return fail();
     if (v.modernLegality !== undefined && (!str(v.modernLegality) || !['legal', 'restricted', 'banned', 'not_legal'].includes(v.modernLegality))) return fail();
     const image = (url: unknown): string | undefined => str(url) && /^https:\/\/cards\.scryfall\.io\//.test(url) ? url : undefined;
     return { scryfallId: v.scryfallId, set: v.set, collectorNumber: v.collectorNumber, typeLine: v.typeLine, oracleText: v.oracleText,
       ...(v.releasedAt !== undefined ? { releasedAt: v.releasedAt as string } : {}), ...(v.printReleases !== undefined ? { printReleases: v.printReleases as { set: string; date: string }[] } : {}),
       ...(v.isGameCard !== undefined ? { isGameCard: v.isGameCard as boolean } : {}),
       ...(v.isUnCard !== undefined ? { isUnCard: v.isUnCard as boolean } : {}),
+      ...(v.legalities !== undefined ? { legalities: v.legalities as CardInfo['legalities'] } : {}),
       ...(v.modernLegality !== undefined ? { modernLegality: v.modernLegality as string } : {}),
       ...(v.setName !== undefined ? { setName: v.setName as string } : {}), ...(v.vintageLegality !== undefined ? { vintageLegality: v.vintageLegality as string } : {}), ...(v.printRarities !== undefined ? { printRarities: v.printRarities as string[] } : {}),
       manaCost: v.manaCost, colorIdentity: v.colorIdentity as string[], oracleId: v.oracleId as string | undefined,
@@ -447,13 +467,13 @@ export function parseLibrary(raw: string): Library {
     return { ...(d.tags !== undefined ? { tags: normalizeTags(d.tags as string[]) } : {}), id: d.id, name: d.name, formatId: d.formatId, notes: d.notes, updatedAt: d.updatedAt, cards,
       ...(d.views !== undefined ? { views } : {}), ...(d.layout !== undefined ? { layout } : {}) };
   });
-  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5) return fail();
+  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10) return fail();
   const preferences: Record<string, CardInfo> = {};
   if (value.preferredPrintings !== undefined) {
     if (!object(value.preferredPrintings)) return fail();
     for (const [key, rawInfo] of Object.entries(value.preferredPrintings)) { const printing = info(rawInfo); if (!name(key) || !printing?.scryfallId) return fail(); Object.defineProperty(preferences, normalizeName(key), { value: printing, enumerable: true, writable: true, configurable: true }); }
   }
-  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
+  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
 }
 
 export interface ValuedCard { name: string; value: number }
@@ -494,17 +514,17 @@ export function deckCardStatuses(deck: Deck, format: Format): Map<string, CardSt
     const illegal: string[] = cardPriceIssues(card, format), limits: string[] = [];
     const key = ruleCardName(card.name);
     if (format.banned.some(name => ruleCardName(name) === key)) illegal.push('Banned card');
-    if (setLegality(card, format, allowedNames) === 'illegal') illegal.push(hasReleaseRange(format) ? 'Outside release dates or allowed card pool' : format.whitelistOnly ? 'Not in legal card list' : format.officialFormat ? 'Not legal in Modern' : 'Not in allowed sets');
+    if (setLegality(card, format, allowedNames) === 'illegal') illegal.push(hasReleaseRange(format) ? 'Outside release dates or allowed card pool' : format.whitelistOnly ? 'Not in legal card list' : format.officialFormat ? `Not legal in ${OFFICIAL_FORMAT_NAMES[format.officialFormat]}` : 'Not in allowed sets');
     if (format.gameplayOnly && card.info?.isGameCard === false) illegal.push('Not a playable card');
     if (tournamentEligibility(card, format) === 'illegal') illegal.push('Outside tournament card pool');
-    if (!format.whitelistOnly && format.bannedRarities?.length && card.info?.setsComplete && card.info.printRarities && !card.info.printRarities.some(r => !format.bannedRarities!.includes(r as Rarity))) illegal.push('No allowed rarity printing');
+    if (!format.whitelistOnly && format.bannedRarities?.length && card.info?.setsComplete && card.info.printRarities) { const allowed = card.zone === 'commander' && format.commanderAnyCreature ? ['uncommon'] : RARITIES.filter(rarity => !format.bannedRarities!.includes(rarity)); if (!card.info.printRarities.some(rarity => allowed.includes(rarity as Rarity))) illegal.push('No allowed rarity printing'); }
     if (format.bannedTypes?.some(type => card.info?.typeLine.toLowerCase().includes(type.toLowerCase()))) illegal.push('Banned card type');
     if (card.zone === 'companion' && format.bannedCompanions?.some(name => ruleCardName(name) === key)) illegal.push('Banned as companion');
     if (format.commanderRules && identity && card.info?.scryfallId && card.info.colorIdentity.some(color => !identity.has(color))) illegal.push('Outside commander color identity');
     if (card.zone !== 'considering') {
-      const restriction = format.restricted?.find(c => ruleCardName(c.name) === key);
-      const limit = restriction ? Math.min(restriction.limit, format.copyLimit ?? Infinity) : format.copyLimit ?? Infinity;
-      if ((restriction || !(format.basicLandExemption && basics.has(key))) && (totals.get(key) ?? 0) > limit) limits.push(`Copy limit ${limit} exceeded`);
+      const restriction = copyRestriction(deck, format, key);
+      const limit = Math.min(restriction ?? Infinity, format.copyLimit ?? Infinity);
+      if ((restriction !== undefined || !(format.basicLandExemption && basics.has(key))) && (totals.get(key) ?? 0) > limit) limits.push(`Copy limit ${limit} exceeded`);
       if (format.maxPoints !== undefined && pointTotal > format.maxPoints && format.pointed?.some(c => ruleCardName(c.name) === key && c.points > 0)) limits.push(`Point budget exceeded (${pointTotal}/${format.maxPoints})`);
     }
     return [card.id, { illegal, limits }];
