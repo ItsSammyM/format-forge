@@ -25,8 +25,8 @@
   let cardDetails = $state<{ savePendingTags: () => boolean } | undefined>();
   let stats = $state(false), primerOpen = $state(false);
   let error = $state(''), lookupError = $state(''), resolving = $state(0), retry = $state(0);
-  let transfer = $state(false), importText = $state(''), importMode = $state<'append' | 'replace' | 'edit'>('append');
-  let exportStyle = $state<ExportStyle>('arena'), printings = $state(false), copied = $state(false);
+  let transfer = $state(false), importText = $state(''), importMode = $state<'main' | 'side' | 'considering' | 'edit'>('main');
+  let exportStyle = $state<ExportStyle>('plain'), printings = $state(false), copied = $state(false);
   let preview = $state<{ name: string; info: CardInfo } | null>(null);
   let editingCardId = $state<string | null>(null);
   let compact = $state(false), hoveredZone = $state<Zone | null>(null);
@@ -144,13 +144,16 @@
     try { commit(moveCard(deck, id, target, count)); error = ''; closeCard(); }
     catch (e) { error = e instanceof Error ? e.message : 'Could not move the card.'; }
   }
+  function changeImportMode(mode: typeof importMode) {
+    importMode = mode;
+    importText = mode === 'edit' ? deckText(deck, 'extended', true) : '';
+    error = '';
+  }
   function importList() {
     try {
-      const cards = importMode === 'append' ? parseDeckText(importText) : [];
-      if (importMode === 'replace' && deck.cards.length && !confirm('Replace all cards in this deck with the imported list?')) return;
-      let next = importMode !== 'append' ? replaceDeckText(deck, importText, preferredPrintings) : { ...deck, cards: [...deck.cards] };
-      if (importMode === 'append') for (const card of cards) next = addCard(next, card.name, card.quantity, card.zone, card.info ?? preferredPrintings[normalizeName(card.name)]);
-      commit(next); importText = ''; error = ''; transfer = false;
+      let next = importMode === 'edit' ? replaceDeckText(deck, importText, preferredPrintings) : { ...deck, cards: [...deck.cards] };
+      if (importMode !== 'edit') for (const card of parseDeckText(importText, importMode)) next = addCard(next, card.name, card.quantity, card.zone, card.info ?? preferredPrintings[normalizeName(card.name)]);
+      commit(next); importText = ''; importMode = 'main'; error = ''; transfer = false;
     } catch (e) { error = e instanceof Error ? e.message : 'Could not import the decklist.'; }
   }
   async function readList(event: Event) {
@@ -169,7 +172,30 @@
 <div class="deck-toolbar"><button class="quiet" onclick={onback}>← Decks</button><label class="sr-only" for="deck-name">Deck name</label><input id="deck-name" class="deck-title-input" value={deck.name} maxlength="200" oninput={(e) => { if (e.currentTarget.value.trim()) update({ name: e.currentTarget.value }, 'name'); }} /><label class="sr-only" for="deck-format">Deck format</label><select id="deck-format" value={deck.formatId} onchange={(e) => update({ formatId: e.currentTarget.value })}>{#each formats as f}<option value={f.id}>{f.name}</option>{/each}</select><details class="format-check" class:has-issues={issues.length > 0}><summary><span>{deckSize(deck)} deck · {sideboardSize(deck, format)} sideboard · {countCards(deck, 'considering')} considering</span><span>{resolving ? `Checking ${resolving}…` : issues.length ? `${issues.length} rule ${issues.length === 1 ? 'issue' : 'issues'}` : 'Rules met'}</span></summary><div class="check-content">{#if format.pointed?.length || format.maxPoints !== undefined}<p>{deckPoints(deck, format)} / {format.maxPoints ?? '∞'} points</p>{/if}<p>Deck {format.minCards}–{format.maxCards ?? '∞'} · Sideboard {format.minSideboard}–{format.maxSideboard ?? '∞'} · {format.copyLimit ?? '∞'} copies · {format.whitelistOnly ? `${format.allowedCards?.length ?? 0} legal cards` : format.allowedSets.length ? `${format.allowedSets.length} allowed sets` : 'All sets'}</p>{#if issues.length}<ul>{#each issues as issue}<li>{issue}</li>{/each}</ul>{/if}{#if lookupError}<p class="error">{lookupError}</p><button class="secondary" disabled={resolving > 0} onclick={() => { lookupError = ''; retry++; }}>Retry card data</button>{/if}<p class="help">Commanders count toward deck size. Companions count toward the sideboard except in commander formats. Considering cards are excluded from rule checks.</p></div></details>{#if closed.length || !stats || !transfer || !primerOpen}<div class="reopen-windows" role="group" aria-label="Show panels"><span>Show panels</span><div>{#each closed as zone}<button class="secondary" onclick={() => toggleZone(zone)}>{zone === 'search' ? 'Search' : ZONE_NAMES[zone]}</button>{/each}{#if !stats}<button class="secondary" onclick={() => stats = true}>Stats</button>{/if}{#if !transfer}<button class="secondary" onclick={() => { transfer = true; copied = false; error = ''; }}>Deck import / export</button>{/if}{#if !primerOpen}<button class="secondary" onclick={() => primerOpen = true}>Primer</button>{/if}</div></div>{/if}<details class="deck-actions-menu"><summary class="secondary">Deck actions</summary><div><button class="secondary" disabled={!canUndo} onclick={() => undo()}>Undo</button><button class="secondary" disabled={!canRedo} onclick={() => undo(true)}>Redo</button><button class="secondary" onclick={onduplicate}>Duplicate deck</button><button class="danger" onclick={ondelete}>Delete deck</button><button class="quiet" onclick={() => layout({ workspace: 46, boards: 55, auxiliary: 50, searchControls: undefined, hiddenZones: [], special: {}, zoneSplits: {} })}>Reset zone sizes</button><label>Deck tags<input value={(deck.tags ?? []).join(', ')} placeholder="aggro, favorites" onchange={(e) => (() => { try { update({ tags: normalizeTags(e.currentTarget.value.split(',')) }); error = ''; } catch (e) { error = e instanceof Error ? e.message : 'Could not save deck tags.'; } })()} /></label></div></details></div>
 {#if error}<p class="error action-error" role="alert">{error}</p>{/if}
 {#if transfer}
-  <section class="transfer-panel panel"><div class="section-heading"><h2>Import / export / edit this deck</h2><button class="section-close" aria-label="Close deck import and export" onclick={() => transfer = false}>×</button></div><div class="transfer-columns"><div><label>{importMode === 'edit' ? 'Edit deck as text' : 'Import decklist'}<textarea bind:value={importText} rows="6" placeholder="Deck&#10;4 Lightning Bolt&#10;20 Mountain&#10;&#10;Sideboard&#10;2 Abrade"></textarea></label><div class="transfer-actions"><label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={readList} /></label><label class="sr-only" for="import-mode">Import mode</label><select id="import-mode" bind:value={importMode} onchange={(e) => { if (e.currentTarget.value === 'edit') importText = deckText(deck, 'extended', true); }}><option value="append">Add to deck</option><option value="replace">Replace deck</option><option value="edit">Edit current deck</option></select><button class="secondary" onclick={() => { importMode = 'edit'; importText = deckText(deck, 'extended', true); }}>Edit current deck</button><button class="primary" onclick={importList}>{importMode === 'edit' ? 'Apply edits' : 'Import'}</button></div></div><div><div class="export-options"><label>Export format<select bind:value={exportStyle}><option value="arena">Arena-style text</option><option value="plain">Plain text</option><option value="mtgo">MTGO-style text (SB:)</option><option value="extended">All sections</option></select></label><label class="checkbox-label"><input type="checkbox" bind:checked={printings} /> Include printing</label></div><label class="sr-only" for="export-text">Exported decklist</label><textarea id="export-text" value={exported} readonly rows="6"></textarea><div class="transfer-actions"><button class="secondary" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button><button class="primary" onclick={() => download(exported, `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain')}>Download</button></div><p class="help">Considering and conspiracies are included in All sections. MTGO-style text combines commanders with the deck and companions with the sideboard.</p></div></div></section>
+  <section class="transfer-panel panel deck-transfer">
+    <div class="section-heading"><h2>Import / export / edit this deck</h2><button class="section-close" aria-label="Close deck import and export" onclick={() => transfer = false}>×</button></div>
+    <div class="deck-transfer-columns">
+      <div class="deck-transfer-column">
+        <div class="deck-transfer-toolbar">
+          <label class="sr-only" for="import-mode">Import mode</label>
+          <select id="import-mode" value={importMode} onchange={(e) => changeImportMode(e.currentTarget.value as typeof importMode)}><option value="main">Add to deck</option><option value="side">Add to sideboard</option><option value="considering">Add to considering</option><option value="edit">Edit</option></select>
+          <label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={readList} /></label>
+          <button class="primary transfer-submit" onclick={importList}>{importMode === 'edit' ? 'Apply edits' : 'Add cards'}</button>
+        </div>
+        <label class="sr-only" for="import-text">{importMode === 'edit' ? 'Edit deck as text' : 'Import decklist'}</label>
+        <textarea id="import-text" bind:value={importText} rows="5" placeholder={importMode === 'edit' ? 'Deck\n4 Lightning Bolt\n20 Mountain\n\nSideboard\n2 Abrade' : '4 Lightning Bolt\nSol Ring\n2 Abrade'}></textarea>
+      </div>
+      <div class="deck-transfer-column">
+        <div class="deck-transfer-toolbar">
+          <label class="sr-only" for="export-style">Export format</label>
+          <select id="export-style" bind:value={exportStyle} title={exportStyle === 'extended' ? 'Includes considering and conspiracies' : exportStyle === 'mtgo' ? 'Commanders join the deck; companions join the sideboard' : 'Export format'}><option value="plain">Plain text</option><option value="arena">Arena text</option><option value="mtgo">MTGO (SB:)</option><option value="extended">All sections</option></select>
+          <label class="checkbox-label"><input type="checkbox" bind:checked={printings} /> Printings</label>
+          <div class="deck-transfer-export-actions"><button class="secondary" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button><button class="primary" onclick={() => download(exported, `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain')}>Download</button></div>
+        </div>
+        <label class="sr-only" for="export-text">Exported decklist</label><textarea id="export-text" value={exported} readonly rows="5"></textarea>
+      </div>
+    </div>
+  </section>
 {/if}
 <DeckStats {deck} {format} open={stats} onclose={() => stats = false} />
 

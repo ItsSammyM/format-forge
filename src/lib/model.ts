@@ -280,7 +280,8 @@ export function deckText(deck: Deck, style: ExportStyle = 'plain', printings = f
   const text = zones.filter(z => z === 'main' || deck.cards.some(c => c.zone === z || z === 'side' && c.zone === 'companion')).map(z => `${z === 'main' && style === 'plain' && !hasRoles ? '' : `${ZONE_NAMES[z]}\n`}${lines(z)}`).join('\n\n').trim();
   return `${style === 'extended' ? '// Format Forge all sections\n' : ''}${text}\n`;
 }
-export function parseDeckText(text: string): CardEntry[] {
+// A selected add destination overrides section markers and accepts bare names as one copy.
+export function parseDeckText(text: string, targetZone?: Zone): CardEntry[] {
   let zone: Zone = 'main', explicit = false, gap = false;
   const separateRoles = text.includes('// Format Forge all sections');
   let result: Deck = { id: 'import', name: 'Import', formatId: '', notes: '', updatedAt: new Date().toISOString(), cards: [] };
@@ -299,9 +300,12 @@ export function parseDeckText(text: string): CardEntry[] {
     if (tagged) { target = headers[tagged[1].toLowerCase()]; line = line.slice(0, tagged.index).trim(); }
     line = line.replace(/\s+#.*$/, '').replace(/\s+\*F\*\s*$/i, '');
     const match = line.match(/^(\d+)x?\s+(.+)$/i);
-    if (!match) { errors.push(`Line ${index + 1}: expected a quantity followed by a card name.`); continue; }
-    const printing = match[2].match(/^(.+?)\s+\(([a-z0-9]+)\)\s+([^\s]+)$/i), cardName = (printing?.[1] ?? match[2]).trim();
-    try { result = addCard(result, cardName, Number(match[1]), target); }
+    if (!match && /^[-+]?\d+(?:\.\d+)?x?\s+/i.test(line)) { errors.push(`Line ${index + 1}: enter a whole-number quantity from 1 to 999.`); continue; }
+    if (!match && !targetZone) { errors.push(`Line ${index + 1}: expected a quantity followed by a card name.`); continue; }
+    if (targetZone) target = targetZone;
+    const nameText = match?.[2] ?? line;
+    const printing = nameText.match(/^(.+?)\s+\(([a-z0-9]+)\)\s+([^\s]+)$/i), cardName = (printing?.[1] ?? nameText).trim();
+    try { result = addCard(result, cardName, match ? Number(match[1]) : 1, target); }
     catch (e) { errors.push(`Line ${index + 1}: ${e instanceof Error ? e.message : 'Invalid card.'}`); }
     if (printing) {
       const entry = result.cards.find(c => c.zone === target && normalizeName(c.name) === normalizeName(cardName));
@@ -309,9 +313,9 @@ export function parseDeckText(text: string): CardEntry[] {
     }
   }
   if (errors.length) throw new Error(errors.slice(0, 5).join('\n'));
-  if (!result.cards.length) throw new Error('No cards found. Paste quantities and card names, one per line.');
+  if (!result.cards.length) throw new Error(targetZone ? 'No cards found. Paste card names, optionally preceded by quantities, one per line.' : 'No cards found. Paste quantities and card names, one per line.');
   // Arena-style lists designate the companion and also include it in the sideboard.
-  if (!separateRoles) for (const companion of result.cards.filter(c => c.zone === 'companion')) {
+  if (!separateRoles && !targetZone) for (const companion of result.cards.filter(c => c.zone === 'companion')) {
     const side = result.cards.find(c => c.zone === 'side' && normalizeName(c.name) === normalizeName(companion.name));
     if (side) side.quantity -= Math.min(side.quantity, companion.quantity);
   }

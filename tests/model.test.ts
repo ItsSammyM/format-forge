@@ -272,3 +272,32 @@ test('deck tags, list details and preferred printings survive library backups', 
 test('explicit eternal formats allow all sets even when imported set codes remain', () => {
   assert.equal(setLegality({ id: 'card', name: 'Test', quantity: 1, zone: 'main' }, { ...format(), eternal: true, allowedSets: ['dmu'] }), 'legal');
 });
+
+test('add modes accept mixed quantities and bare names in each selected section', () => {
+  for (const target of ['main', 'side', 'considering'] as const) {
+    const cards = parseDeckText('Lightning Bolt\n3 Lightning Bolt\n2x Opt\nSol Ring (CMM) 396\nNegate *F* # interaction', target);
+    assert.deepEqual(cards.map(c => [c.name, c.quantity, c.zone]), [
+      ['Lightning Bolt', 4, target], ['Opt', 2, target], ['Sol Ring', 1, target], ['Negate', 1, target],
+    ]);
+    assert.equal(cards[2].info?.set, 'cmm'); assert.equal(cards[2].info?.collectorNumber, '396');
+  }
+});
+
+test('selected add section overrides headers, blank lines, SB prefixes and role annotations', () => {
+  const text = 'Deck\nOpt\n\nSideboard\n2 Negate\nSB: Abrade\nConsidering\nLightning Bolt [Commander]';
+  for (const target of ['main', 'side', 'considering'] as const) {
+    const cards = parseDeckText(text, target);
+    assert.equal(cards.length, 4);
+    assert.ok(cards.every(c => c.zone === target));
+    assert.deepEqual(cards.map(c => c.quantity), [1, 2, 1, 1]);
+  }
+});
+
+test('add imports reject invalid quantities and overflow without changing the existing deck', () => {
+  const original = addCard(deck(), 'Opt', 4, 'main');
+  for (const text of ['0 Opt', '-1 Opt', '1.5 Opt', '1000 Opt', '999 Opt\nOpt', '// no cards\nSideboard']) {
+    assert.throws(() => parseDeckText(text, 'side'));
+  }
+  assert.deepEqual(original.cards.map(c => [c.name, c.quantity]), [['Opt', 4]]);
+  assert.throws(() => parseDeckText('Opt'), /Line 1/);
+});
