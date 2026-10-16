@@ -52,15 +52,10 @@
   function newFormat() {
     editing = blankFormat();
   }
-  function autosaveFormat(format: Format) {
-    if (isDefaultFormat(format.id)) return;
+  function autosaveFormat(format?: Format) {
+    if (!format || isDefaultFormat(format.id)) return;
     if (library.formats.some(f => f.id === format.id)) library.formats = library.formats.map(f => f.id === format.id ? format : f);
     else library.formats = [...library.formats, format];
-  }
-  function saveFormat(format: Format) {
-    if (isDefaultFormat(format.id)) { notice = 'Default formats are read-only. Duplicate one to customize it.'; return; }
-    autosaveFormat(format);
-    editing = null; notice = 'Format saved.';
   }
   function deleteFormat(format: Format) {
     if (isDefaultFormat(format.id)) { notice = 'Default formats cannot be deleted.'; return; }
@@ -133,7 +128,7 @@
       {:else}<div class="deck-grid">{#each visibleDecks as deck (deck.id)}{@const format = library.formats.find(f => f.id === deck.formatId)!}{@const ruleIssues = validateDeck(deck, format)}{@const same = library.decks.filter(item => normalizeName(item.name) === normalizeName(deck.name) && item.formatId === deck.formatId)}<article class="deck-card"><button class="deck-open" onclick={() => selectedId = deck.id}><h2 class="deck-card-title"><span class="deck-title-text">{deck.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === deck.id) + 1}</small>{/if}</span>{#if ruleIssues.length}<span class="deck-rule-warning" role="img" title={ruleIssues.join('\n')} aria-label={`${ruleIssues.length} saved rule issues`}><svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 22 21H2Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v5m0 3v1" stroke="currentColor" stroke-width="2" /></svg><span>{ruleIssues.length}</span></span>{/if}</h2>{#if deck.tags?.length}<span class="library-tag-list">{#each deck.tags as tag}<span class="library-tag">{tag}</span>{/each}</span>{/if}<span>{format.name}</span><span>{deckSize(deck)} deck · {sideboardSize(deck, format)} sideboard</span></button><div class="deck-card-footer"><button class="quiet" onclick={() => duplicate(deck)} aria-label={`Duplicate ${deck.name}`}>Duplicate</button><button class="quiet danger" onclick={() => deleteDeck(deck)} aria-label={`Delete ${deck.name}`}>Delete</button></div></article>{/each}</div>{/if}
     {:else}
       <div class="page-heading"><h1>Formats</h1><div class="format-page-actions"><label class="file-button secondary">Import format<input type="file" accept=".json,application/json" onchange={importFormat} /></label><button class="primary" onclick={newFormat}>+ New format</button></div></div>
-      {#if editing}{#key editing.id}<FormatEditor readOnly={isDefaultFormat(editing.id)} format={editing} onsave={saveFormat} onchange={autosaveFormat} oncancel={() => editing = null} />{/key}
+      {#if editing}{#key editing.id}<FormatEditor readOnly={isDefaultFormat(editing.id)} format={editing} onchange={autosaveFormat} onback={() => editing = null} />{/key}
       {:else}<div class="library-toolbar format-library-toolbar"><label for="format-search">Search<input id="format-search" type="search" bind:value={formatSearch} placeholder="Name, description, tag" /></label><label>Tag<select aria-label="Filter formats by tag" bind:value={formatTagFilter}><option value="">All tags</option>{#each formatTags as tag}<option value={tag}>{tag}</option>{/each}</select></label><label>Sort<select aria-label="Sort formats" bind:value={formatSort}><option value="name">Name</option><option value="decks">Deck count</option><option value="tag">Tag</option><option value="default">Default first</option></select></label><label>Group<select aria-label="Group formats" bind:value={formatGroup}><option value="none">No grouping</option><option value="tag">By tag</option><option value="default">Default / custom</option></select></label></div>
         {#if library.formats.length === 0}<section class="empty-state"><p>No formats yet.</p></section>
         {:else if !visibleFormats.length}<section class="empty-state"><p>No matching formats.</p><button class="secondary" onclick={() => { formatSearch = ''; formatTagFilter = ''; }}>Clear filters</button></section>

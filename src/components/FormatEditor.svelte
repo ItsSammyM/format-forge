@@ -8,18 +8,19 @@
   import type { CardInfo, Format, OfficialFormat, Rarity } from '../lib/model';
   import { loadSets } from '../lib/scryfall';
   import type { ScryfallSet } from '../lib/scryfall';
-  let { format, onsave, onchange, oncancel, readOnly = false }: { format: Format; readOnly?: boolean; onsave: (format: Format) => void; onchange: (format: Format) => void; oncancel: () => void } = $props();
-  let draft = $state(untrack(() => ({ ...format, allowedSets: [...format.allowedSets], banned: [...format.banned], allowedCards: [...format.allowedCards ?? []], normalOnly: format.normalOnly ?? true, allowUnCards: format.allowUnCards ?? false, banTournamentIllegal: format.banTournamentIllegal ?? (!format.whitelistOnly && !format.officialFormat && (format.normalOnly ?? true)), bannedRarities: [...format.bannedRarities ?? []] as Rarity[], pointed: (format.pointed ?? []).map(c => ({ ...c })), restricted: (format.restricted ?? []).map(c => ({ ...c })) })));
-  let draftTags = $state(untrack(() => (format.tags ?? []).join(', ')));
-  let poolMode = $state(untrack(() => format.whitelistOnly ? 'list' : format.officialFormat ?? 'rules')), pendingLegal = $state(false);
+  let { format, onchange, onback, readOnly = false }: { format: Format; readOnly?: boolean; onchange: (format?: Format) => void; onback: () => void } = $props();
+  const initialFormat = untrack(() => format);
+  let draft = $state(untrack(() => ({ ...initialFormat, allowedSets: [...initialFormat.allowedSets], banned: [...initialFormat.banned], allowedCards: [...initialFormat.allowedCards ?? []], normalOnly: initialFormat.normalOnly ?? true, allowUnCards: initialFormat.allowUnCards ?? false, banTournamentIllegal: initialFormat.banTournamentIllegal ?? (!initialFormat.whitelistOnly && !initialFormat.officialFormat && (initialFormat.normalOnly ?? true)), bannedRarities: [...initialFormat.bannedRarities ?? []] as Rarity[], pointed: (initialFormat.pointed ?? []).map(c => ({ ...c })), restricted: (initialFormat.restricted ?? []).map(c => ({ ...c })) })));
+  let draftTags = $state(untrack(() => (initialFormat.tags ?? []).join(', ')));
+  let poolMode = $state(untrack(() => initialFormat.whitelistOnly ? 'list' : initialFormat.officialFormat ?? 'rules')), pendingLegal = $state(false);
   const scryfallFormat = $derived(Object.hasOwn(OFFICIAL_FORMAT_NAMES, poolMode) ? poolMode as OfficialFormat : undefined);
-  let eternal = $state(untrack(() => format.eternal ?? format.allowedSets.length === 0));
-  let maximum = $state<number | undefined>(untrack(() => format.maxCards ?? undefined));
-  let sideMaximum = $state<number | undefined>(untrack(() => format.maxSideboard ?? undefined));
-  let releasedAfter = $state(untrack(() => format.releasedAfter ?? '')), releasedBefore = $state(untrack(() => format.releasedBefore ?? ''));
+  let eternal = $state(untrack(() => initialFormat.eternal ?? initialFormat.allowedSets.length === 0));
+  let maximum = $state<number | undefined>(untrack(() => initialFormat.maxCards ?? undefined));
+  let sideMaximum = $state<number | undefined>(untrack(() => initialFormat.maxSideboard ?? undefined));
+  let releasedAfter = $state(untrack(() => initialFormat.releasedAfter ?? '')), releasedBefore = $state(untrack(() => initialFormat.releasedBefore ?? ''));
   let restrictedLimit = $state(1);
   let pointValue = $state(1);
-  let pointMaximum = $state<number | undefined>(untrack(() => format.maxPoints));
+  let pointMaximum = $state<number | undefined>(untrack(() => initialFormat.maxPoints));
   let pendingRestricted = $state(false), pendingPoints = $state(false);
   const formatActions = $derived([
     { label: '+ Ban', selectedLabel: 'Banned', disabled: (name: string) => draft.banned.some(n => ruleCardName(n) === ruleCardName(name)), onadd: (name: string) => draft.banned = uniqueCardNames([...draft.banned, name]) },
@@ -57,45 +58,43 @@
     const tags = normalizeTags(draftTags.split(',')).filter(tag => tag.toLocaleLowerCase() !== 'default');
     return { ...draft, ...limits, tags, copyLimit: draft.copyLimit ?? null, releasedAfter: releasedAfter || undefined, releasedBefore: releasedBefore || undefined, officialFormat: Object.hasOwn(OFFICIAL_FORMAT_NAMES, poolMode) ? poolMode as OfficialFormat : undefined, maxPoints, whitelistOnly: poolMode === 'list', eternal, allowedSets: eternal ? [] : draft.allowedSets, name: draft.name.trim(), maxCards, maxSideboard, banned: uniqueCardNames(draft.banned) };
   }
-  $effect(() => {
-    if (readOnly || !draft.name.trim()) return;
-    try { const next = buildFormat(); untrack(() => onchange(next)); } catch { /* Keep incomplete edits local until they are valid. */ }
-  });
-  function submit(event: SubmitEvent) {
-    event.preventDefault();
-    if (readOnly) return;
-    const limits = normalizeFormatLimits({ ...draft, maxCards: maximum, maxSideboard: sideMaximum, maxPoints: pointMaximum });
-    const { maxCards, maxSideboard, maxPoints } = limits;
-    if (!draft.name.trim() || [draft.minCards, draft.minSideboard].some(n => !Number.isInteger(n) || n < 0 || n > 999) || (draft.copyLimit != null && (!Number.isInteger(draft.copyLimit) || draft.copyLimit < 1 || draft.copyLimit > 999))
+  function validationError(): string | undefined {
+    const { maxCards, maxSideboard, maxPoints, ...limits } = normalizeFormatLimits({ ...draft, maxCards: maximum, maxSideboard: sideMaximum, maxPoints: pointMaximum });
+    if (!draft.name.trim()) return 'Enter a format name.';
+    if ([draft.minCards, draft.minSideboard].some(n => !Number.isInteger(n) || n < 0 || n > 999) || (draft.copyLimit != null && (!Number.isInteger(draft.copyLimit) || draft.copyLimit < 1 || draft.copyLimit > 999))
       || (maxCards !== null && (!Number.isInteger(maxCards) || maxCards < draft.minCards || maxCards > 999))
-      || (maxSideboard !== null && (!Number.isInteger(maxSideboard) || maxSideboard < draft.minSideboard || maxSideboard > 999))) { error = 'Check the size ranges. Each maximum must be at least its minimum.'; return; }
-    if (poolMode === 'rules' && !eternal && !draft.allowedSets.length) { error = 'Choose at least one allowed set or select Eternal.'; return; }
-    if (poolMode === 'rules' && setCodes.trim()) { error = 'Add the pasted set codes before saving.'; return; }
-    if (draft.restricted.some(c => !Number.isInteger(c.limit) || c.limit < 1 || c.limit > 999)) { error = 'Restricted copy limits must be integers from 1 to 999.'; return; }
-    if (pendingRestricted || pendingPoints) { error = 'Apply the pending restricted or pointed card list before saving.'; return; }
-    if (draft.pointed.some(c => !Number.isInteger(c.points) || c.points < 0 || c.points > 999) || (maxPoints !== undefined && (!Number.isInteger(maxPoints) || maxPoints < 0 || maxPoints > 999))) { error = 'Points and the point limit must be whole numbers from 0 to 999.'; return; }
-    if (pendingBans) { error = 'Import the pasted banned cards before saving.'; return; }
-    if (draft.allowedCards.length > 50000) { error = 'Legal card lists support up to 50,000 names.'; return; }
-    if (poolMode === 'list' && (pendingLegal || !draft.allowedCards.length)) { error = pendingLegal ? 'Import the pending legal cards before saving.' : 'Import at least one legal card.'; return; }
+      || (maxSideboard !== null && (!Number.isInteger(maxSideboard) || maxSideboard < draft.minSideboard || maxSideboard > 999))) return 'Check the size ranges. Each maximum must be at least its minimum.';
+    if (poolMode === 'rules' && !eternal && !draft.allowedSets.length) return 'Choose at least one allowed set or select Eternal.';
+    if (poolMode === 'rules' && setCodes.trim()) return 'Add the pasted set codes before saving.';
+    if (draft.restricted.some(c => !Number.isInteger(c.limit) || c.limit < 1 || c.limit > 999)) return 'Restricted copy limits must be integers from 1 to 999.';
+    if (pendingRestricted || pendingPoints) return 'Apply the pending restricted or pointed card list before saving.';
+    if (draft.pointed.some(c => !Number.isInteger(c.points) || c.points < 0 || c.points > 999) || (maxPoints !== undefined && (!Number.isInteger(maxPoints) || maxPoints < 0 || maxPoints > 999))) return 'Points and the point limit must be whole numbers from 0 to 999.';
+    if (pendingBans) return 'Import the pasted banned cards before saving.';
+    if (draft.allowedCards.length > 50000) return 'Legal card lists support up to 50,000 names.';
+    if (poolMode === 'list' && (pendingLegal || !draft.allowedCards.length)) return pendingLegal ? 'Import the pending legal cards before saving.' : 'Import at least one legal card.';
     for (const key of ['minCardPrice', 'maxCardPrice', 'minDeckPrice', 'maxDeckPrice'] as const) {
       const price = limits[key];
-      if (price !== undefined && (!Number.isFinite(price) || price < 0 || price > 1000000000)) { error = 'Price limits must be nonnegative USD amounts.'; return; }
+      if (price !== undefined && (!Number.isFinite(price) || price < 0 || price > 1000000000)) return 'Price limits must be nonnegative USD amounts.';
     }
-    if (limits.minCardPrice !== undefined && limits.maxCardPrice !== undefined && limits.minCardPrice > limits.maxCardPrice || limits.minDeckPrice !== undefined && limits.maxDeckPrice !== undefined && limits.minDeckPrice > limits.maxDeckPrice) { error = 'Each maximum price must be at least its minimum.'; return; }
-    if (releasedAfter && !validReleaseDate(releasedAfter) || releasedBefore && !validReleaseDate(releasedBefore) || releasedAfter && releasedBefore && releasedAfter > releasedBefore) { error = 'Enter valid release dates with the start on or before the end.'; return; }
-    const banned = uniqueCardNames(draft.banned);
-    if (banned.some(n => n.length > 200)) { error = 'Banned card names must be 200 characters or fewer.'; return; }
-    try { normalizeTags(draftTags.split(',')); } catch (e) { error = e instanceof Error ? e.message : 'Invalid format tags.'; return; }
-    onsave(buildFormat());
+    if (limits.minCardPrice !== undefined && limits.maxCardPrice !== undefined && limits.minCardPrice > limits.maxCardPrice || limits.minDeckPrice !== undefined && limits.maxDeckPrice !== undefined && limits.minDeckPrice > limits.maxDeckPrice) return 'Each maximum price must be at least its minimum.';
+    if (releasedAfter && !validReleaseDate(releasedAfter) || releasedBefore && !validReleaseDate(releasedBefore) || releasedAfter && releasedBefore && releasedAfter > releasedBefore) return 'Enter valid release dates with the start on or before the end.';
+    if (uniqueCardNames(draft.banned).some(n => n.length > 200)) return 'Banned card names must be 200 characters or fewer.';
+    try { normalizeTags(draftTags.split(',')); } catch (e) { return e instanceof Error ? e.message : 'Invalid format tags.'; }
   }
+  const currentValidationError = $derived(validationError());
+  $effect(() => {
+    if (readOnly) return;
+    if (currentValidationError) return;
+    try { const validFormat = buildFormat(); untrack(() => onchange(validFormat)); } catch { /* Keep the last valid saved format. */ }
+  });
 </script>
 
 <div class="format-editor-layout">
 <section class="panel editor-panel">
-  <div class="section-heading"><h2>{readOnly ? 'View format' : format.name ? 'Edit format' : 'New format'}</h2><button class="quiet" onclick={oncancel}>Close</button></div>
+  <div class="section-heading"><h2>{readOnly ? 'View format' : format.name ? 'Edit format' : 'New format'}</h2><button class="quiet" onclick={onback}>← Formats</button></div>
   {#if readOnly}<p class="help">Default format · read-only. Duplicate it from Formats to customize the rules.</p>{/if}
-  {#if !readOnly}<p class="help">Changes save automatically. Choose Done to finish editing.</p>{/if}
-  <form onsubmit={submit}>
+  {#if !readOnly}<p class="help">Changes save automatically.</p>{/if}
+  <form onsubmit={(event) => event.preventDefault()}>
     <label>Format name<input disabled={readOnly} bind:value={draft.name} maxlength="200" required /></label>
     <label>Description<textarea disabled={readOnly} bind:value={draft.description} rows="2" placeholder="A brief description of your format"></textarea></label>
     <label>Tags<input disabled={readOnly} bind:value={draftTags} placeholder="casual, budget, team format" /><small class="help">Separate tags with commas.</small></label>
@@ -111,7 +110,7 @@
     <details class="format-rule-dropdown"><summary>Points · {draft.pointed.length} cards</summary><div class="rule-dropdown-content"><label>Deck point limit<input disabled={readOnly} type="number" min="0" max="999" bind:value={pointMaximum} placeholder="Unlimited" /></label><ValuedListEditor {readOnly} onpreview={(name) => preview = { name }} kind="pointed" cards={draft.pointed.map(c => ({ name: c.name, value: c.points }))} onchange={(cards) => draft.pointed = cards.map(c => ({ name: c.name, points: c.value }))} onpending={(pending) => pendingPoints = pending} /><p class="help">Per copy across active sections. Considering is excluded; unlisted cards cost 0.</p><button disabled={readOnly} type="button" class="secondary" onclick={() => { draft.minCards = 100; maximum = 100; draft.copyLimit = 1; draft.minSideboard = 0; sideMaximum = 0; pointMaximum = 10; draft.basicLandExemption = true; }}>100-card singleton / 10-point defaults</button><a href="https://canadianhighlander.ca/points-list/" target="_blank" rel="noreferrer">Canadian Highlander points ↗</a></div></details>
     <details class="format-rule-dropdown"><summary>Price limits</summary><div class="rule-dropdown-content"><p class="help">USD for the selected printing. Deck totals include sideboard and roles; considering is excluded. Missing prices stay unverified.</p><div class="form-grid"><label>Minimum card price<input disabled={readOnly} type="number" min="0" max="1000000000" step="0.01" bind:value={draft.minCardPrice} placeholder="No minimum" /></label><label>Maximum card price<input disabled={readOnly} type="number" min="0" max="1000000000" step="0.01" bind:value={draft.maxCardPrice} placeholder="No maximum" /></label><label>Minimum deck price<input disabled={readOnly} type="number" min="0" max="1000000000" step="0.01" bind:value={draft.minDeckPrice} placeholder="No minimum" /></label><label>Maximum deck price<input disabled={readOnly} type="number" min="0" max="1000000000" step="0.01" bind:value={draft.maxDeckPrice} placeholder="No maximum" /></label></div></div></details>
     <details class="format-rule-dropdown"><summary>Commander rules</summary><div class="rule-dropdown-content"><label class="checkbox-label"><input disabled={readOnly} type="checkbox" bind:checked={draft.commanderRules} /> Check commanders and color identity</label><label class="checkbox-label"><input disabled={readOnly} type="checkbox" checked={draft.checkCardRoles !== false} onchange={(event) => draft.checkCardRoles = event.currentTarget.checked} /> Check companion and conspiracy roles</label><button disabled={readOnly} class="secondary" type="button" onclick={() => { draft.commanderRules = true; draft.minCards = 100; maximum = 100; draft.minSideboard = 0; sideMaximum = 0; draft.copyLimit = 1; draft.basicLandExemption = true; }}>100-card singleton defaults</button></div></details>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}{#if !readOnly}<button disabled={readOnly} class="primary" type="submit">Done</button>{/if}
+    {#if error || currentValidationError}<p class="error" role="alert">{error || currentValidationError}</p>{/if}
   </form>
 </section>
 
