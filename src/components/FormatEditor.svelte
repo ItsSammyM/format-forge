@@ -15,6 +15,7 @@
   let poolMode = $state(untrack(() => initialFormat.whitelistOnly ? 'list' : initialFormat.officialFormat ?? 'rules')), pendingLegal = $state(false);
   const scryfallFormat = $derived(Object.hasOwn(OFFICIAL_FORMAT_NAMES, poolMode) ? poolMode as OfficialFormat : undefined);
   let eternal = $state(untrack(() => initialFormat.eternal ?? initialFormat.allowedSets.length === 0));
+  const searchFormat = $derived({ ...draft, officialFormat: scryfallFormat, whitelistOnly: poolMode === 'list', eternal, allowedSets: eternal ? [] : draft.allowedSets });
   let maximum = $state<number | undefined>(untrack(() => initialFormat.maxCards ?? undefined));
   let sideMaximum = $state<number | undefined>(untrack(() => initialFormat.maxSideboard ?? undefined));
   let releasedAfter = $state(untrack(() => initialFormat.releasedAfter ?? '')), releasedBefore = $state(untrack(() => initialFormat.releasedBefore ?? ''));
@@ -116,6 +117,6 @@
   </form>
 </section>
 
-{#if !readOnly}<div class="format-ban-search"><div class="format-search-values"><label>Restrict to<input disabled={readOnly} type="number" min="1" max="999" bind:value={restrictedLimit} /><span>copies</span></label><label>Assign<input disabled={readOnly} type="number" min="0" max="999" bind:value={pointValue} /><span>points</span></label></div><CardSearch mode="ban" {formatActions} onadd={(name) => draft.banned = uniqueCardNames([...draft.banned, name])} onpreview={(name, info) => { recordCardInfo(name, info); preview = { name, info }; }} /></div>{/if}
+{#if !readOnly}<div class="format-ban-search"><div class="format-search-values"><label>Restrict to<input disabled={readOnly} type="number" min="1" max="999" bind:value={restrictedLimit} /><span>copies</span></label><label>Assign<input disabled={readOnly} type="number" min="0" max="999" bind:value={pointValue} /><span>points</span></label></div><CardSearch mode="ban" format={searchFormat} {formatActions} onadd={(name) => draft.banned = uniqueCardNames([...draft.banned, name])} onpreview={(name, info) => { recordCardInfo(name, info); preview = { name, info }; }} /></div>{/if}
 </div>
 {#if preview}<CardDetails card={preview} oninfo={(info) => recordCardInfo(preview!.name, info)} onclose={() => preview = null} />{/if}

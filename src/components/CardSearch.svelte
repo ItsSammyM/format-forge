@@ -29,14 +29,14 @@
   let optionsLeft = $state(8), optionsTop = $state(60);
   function positionOptions(event: ToggleEvent) { if (event.newState === 'open') { const r = optionsButton.getBoundingClientRect(); optionsLeft = Math.max(8, Math.min(r.right - 310, window.innerWidth - 318)); optionsTop = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - 260)); } }
   let manualName = $state(''), manualQuantity = $state(1);
-  let query = $state(''), filters = $state(emptyFilters()), onlyFormat = $state(true), order = $state('name');
+  let query = $state(''), filters = $state(emptyFilters()), onlyFormat = $state(mode === 'deck' || !!format), order = $state('name');
   let unique = $state<'cards' | 'art' | 'prints'>('cards'), direction = $state<'auto' | 'asc' | 'desc'>('auto'), extras = $state(true);
   let imageSize = $state('220');
   let target = $state<Zone>('main'), results = $state<ScryfallCard[]>([]), total = $state(0), next = $state<string | undefined>();
   let loading = $state(false), error = $state(''), searched = $state(false), activeQuery = $state('');
   let activeOrder = 'name', activeOptions: SearchOptions = {}, controller: AbortController | undefined, generation = 0;
   let debounce: ReturnType<typeof setTimeout> | undefined, firstLoad = true;
-  const poolFormat = $derived(mode === 'deck' && onlyFormat ? format : undefined);
+  const poolFormat = $derived(onlyFormat ? format : undefined);
   const exactQuery = $derived.by(() => { try { const base = buildSearchQuery(query, filters, poolFormat, target); return poolFormat?.whitelistOnly ? activeQuery || legalPoolQuery(base, legalPoolBatches(base, poolFormat.allowedCards ?? [])[0] ?? []) : base; } catch (e) { return e instanceof Error ? e.message : 'Invalid query'; } });
   const requiredTournament = $derived(poolFormat ? tournamentOnly(poolFormat) : false);
   const includeUnCards = $derived(requiredTournament ? !!poolFormat?.allowUnCards : filters.includeUnCards);
@@ -46,7 +46,7 @@
   $effect(() => {
     // Search on initial load, filter changes, and clearing the query.
     try {
-      buildSearchQuery(query, filters, mode === 'deck' && onlyFormat ? format : undefined, target);
+      buildSearchQuery(query, filters, poolFormat, target);
       order; unique; direction; extras; target; poolFormat?.banned; poolFormat?.allowedCards;
       untrack(() => {
         controller?.abort(); generation++; clearTimeout(debounce);
@@ -65,7 +65,7 @@
     const current = ++generation;
     try {
       if (!more) {
-        activeQuery = buildSearchQuery(query, filters, mode === 'deck' && onlyFormat ? format : undefined, target);
+        activeQuery = buildSearchQuery(query, filters, poolFormat, target);
         activeOrder = order; activeOptions = { unique, direction, extras }; results = []; next = undefined;
       }
       loading = true; error = '';
@@ -96,8 +96,8 @@
   <form bind:this={searchForm} class="search-controls" onsubmit={(e) => { e.preventDefault(); search(); }}>
     <div bind:this={controlsContent} class="search-control-content">
     <div class="search-input-row"><label class="sr-only" for={`${uid}-query`}>Scryfall search</label><input id={`${uid}-query`} bind:value={query} placeholder="Search cards or use Scryfall syntax…" type="search" /><button class="primary" type="submit">Search</button></div>
-    <div class="search-pool-controls">{#if mode === 'deck' && format}<label class="checkbox-label"><input type="checkbox" bind:checked={onlyFormat} />{format.officialFormat ? `Scryfall ${OFFICIAL_FORMAT_NAMES[format.officialFormat]} legality (bans included)` : 'Format card pool'}</label>{/if}<label class="checkbox-label" title="Uses Vintage-legal or restricted cards, with an optional Un-card exception; Vintage copy limits are not applied"><input type="checkbox" checked={filters.normalOnly || requiredTournament} disabled={requiredTournament} onchange={(e) => filters.normalOnly = e.currentTarget.checked} /> Tournament cards{includeUnCards ? ' + Un-cards' : ' only'}{requiredTournament ? ' (format rule)' : ''}</label></div>
-    <div class="search-tools"><label class="search-sort">Sort<select aria-label="Sort results" bind:value={order}><option value="name">Name</option><option value="cmc">Mana value</option><option value="color">Color</option><option value="rarity">Rarity</option><option value="released">Release date</option><option value="usd">Price</option><option value="edhrec">Popularity</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="artist">Artist</option><option value="set">Set</option></select></label><button class="secondary search-options-button" bind:this={optionsButton} type="button" popovertarget={`${uid}-options`}>Options</button><button class="quiet search-clear" type="button" onclick={() => { query = ''; filters = emptyFilters(); unique = 'cards'; direction = 'auto'; extras = true; }}>Clear</button></div>
+    <div class="search-pool-controls">{#if format}<label class="checkbox-label"><input type="checkbox" bind:checked={onlyFormat} />{format.officialFormat ? `Scryfall ${OFFICIAL_FORMAT_NAMES[format.officialFormat]} legality (bans included)` : 'Format card pool'}</label>{/if}<label class="checkbox-label" title="Uses Vintage-legal or restricted cards, with an optional Un-card exception; Vintage copy limits are not applied"><input type="checkbox" checked={filters.normalOnly || requiredTournament} disabled={requiredTournament} onchange={(e) => filters.normalOnly = e.currentTarget.checked} /> Tournament cards{includeUnCards ? ' + Un-cards' : ' only'}{requiredTournament ? ' (format rule)' : ''}</label></div>
+    <div class="search-tools"><label class="search-sort">Sort<select aria-label="Sort results" bind:value={order}><option value="name">Name</option><option value="cmc">Mana value</option><option value="color">Color</option><option value="rarity">Rarity</option><option value="released">Release date</option><option value="usd">Price</option><option value="edhrec">Popularity</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="artist">Artist</option><option value="set">Set</option></select></label><label class="search-sort">Order<select aria-label="Sort order" bind:value={direction}><option value="auto">Automatic</option><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><button class="secondary search-options-button" bind:this={optionsButton} type="button" popovertarget={`${uid}-options`}>Options</button><button class="quiet search-clear" type="button" onclick={() => { query = ''; filters = emptyFilters(); unique = 'cards'; direction = 'auto'; extras = true; }}>Clear</button></div>
     <AdvancedSearch bind:filters bind:unique bind:direction {exactQuery} excludedNames={poolFormat?.banned ?? []} legalList={!!poolFormat?.whitelistOnly} />
     </div>
   </form>
