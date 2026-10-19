@@ -4,6 +4,7 @@
   import { cardPoints, countCards, CARD_SORTS, CARD_DETAILS, normalizeName, setLegality, deckCardStatuses, ZONE_NAMES } from '../lib/model';
   import type { BoardView, CardEntry, CardSort, Deck, Format, Zone } from '../lib/model';
   import { boardView, groupCards, SORT_LABELS } from '../lib/deck-view';
+  import { frontLandCount, mdfcLandCount } from '../lib/card-types';
   let { deck, format, zone, defaultView, highlighted = false, height, onheight, onclose, onview, onedit, onquantity, onpreview, ondragstart, ondragend, ondragover, ondragleave, ondrop, onpointerstart, consumeDragClick }: {
     deck: Deck; format: Format; zone: Zone; defaultView?: BoardView; highlighted?: boolean; height?: number;
     onheight?: (height: number) => void; onclose: () => void; onview: (view: BoardView) => void; onedit: (card: CardEntry) => void; onquantity: (card: CardEntry, delta: number) => void; onpreview: (card: CardEntry) => void;
@@ -19,6 +20,9 @@
   const view = $derived(boardView(deck.views?.[zone] ?? defaultView));
   const details = $derived((view.details ?? ['manaCost', 'tags']).map(k => k === 'colors' ? 'manaCost' : k));
   const statuses = $derived(deckCardStatuses(deck, format));
+  const zoneCards = $derived(deck.cards.filter(c => c.zone === zone));
+  const zoneMdfcs = $derived(mdfcLandCount(zoneCards));
+  const zoneLands = $derived(frontLandCount(zoneCards));
   const groups = $derived(groupCards(deck.cards.filter(c => c.zone === zone), view, format));
   function resizeStart(event: PointerEvent) {
     event.preventDefault(); (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
@@ -32,7 +36,7 @@
     {#if !groups.length}<p class="board-empty">No cards</p>{/if}
     {#each groups as group (group.key)}
       <div class="board-group">
-      {#if view.group !== 'none'}<div class="card-group-heading"><span>{#if group.symbols}<ManaSymbols symbols={group.symbols} />{:else}{group.label}{/if}</span><span>{group.count}</span></div>{/if}
+      {#if view.group !== 'none'}<div class="card-group-heading"><span>{#if view.group === 'type' && group.label === 'Land'}Lands{:else if group.symbols}<ManaSymbols symbols={group.symbols} />{:else}{group.label}{/if}</span><span>{#if view.group === 'type' && group.label === 'Land'}{zoneLands}{#if zoneMdfcs} (+{zoneMdfcs} MDFCs){/if}{:else}{group.count}{/if}</span></div>{/if}
       <div class="deck-list" class:deck-image-grid={view.display === 'cards'}>
       {#each group.cards as card (card.id)}
         <div class="deck-row" class:illegal={!!statuses.get(card.id)?.illegal.length} class:over-limit={!!statuses.get(card.id)?.limits.length} title={[...statuses.get(card.id)?.illegal ?? [], ...statuses.get(card.id)?.limits ?? []].join(' · ')}>

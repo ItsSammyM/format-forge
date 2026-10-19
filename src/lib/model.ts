@@ -11,6 +11,7 @@ export type OfficialFormat = keyof typeof OFFICIAL_FORMAT_NAMES;
 export type CardLegality = 'legal' | 'restricted' | 'banned' | 'not_legal';
 export interface Format {
   id: string; name: string; description: string;
+  updatedAt?: string;
   minCards: number; maxCards: number | null;
   minSideboard: number; maxSideboard: number | null;
   copyLimit: number | null; basicLandExemption: boolean; banned: string[];
@@ -40,7 +41,7 @@ export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction
 export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; special?: Partial<Record<Zone, number>> }
 export interface CardEntry { id: string; name: string; quantity: number; zone: Zone; info?: CardInfo; tags?: string[] }
 export interface Deck { id: string; name: string; formatId: string; notes: string; cards: CardEntry[]; updatedAt: string; views?: Partial<Record<Zone, BoardView>>; layout?: DeckLayout; tags?: string[] }
-export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
+export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
 export const STORAGE_KEY = 'mtg-format-forge.library.v1';
 export const normalizeName = (name: string) => name.trim().toLocaleLowerCase('en-US');
 export const ruleCardName = (name: string) => normalizeName(name.split(' // ')[0]);
@@ -53,7 +54,7 @@ export function blankFormat(): Format {
   return { id: crypto.randomUUID(), name: '', description: '', minCards: 60, maxCards: null, minSideboard: 0, maxSideboard: 15, copyLimit: 4, basicLandExemption: true, banned: [], allowedSets: [], commanderRules: false, normalOnly: true };
 }
 export function createLibrary(): Library {
-  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 10 };
+  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 11 };
 }
 export const tournamentOnly = (format: Format) => format.banTournamentIllegal ?? (!format.whitelistOnly && !format.officialFormat && !!format.normalOnly);
 export function tournamentEligibility(card: CardEntry, format: Format): 'legal' | 'illegal' | 'unknown' {
@@ -368,7 +369,8 @@ export function parseLibrary(raw: string): Library {
     if (f.minCardPrice !== undefined && f.maxCardPrice !== undefined && (f.minCardPrice as number) > (f.maxCardPrice as number) || f.minDeckPrice !== undefined && f.maxDeckPrice !== undefined && (f.minDeckPrice as number) > (f.maxDeckPrice as number)) return fail();
     formatIds.add(f.id);
     const tags = f.tags === undefined ? undefined : normalizeTags(f.tags as string[]);
-    return { ...(tags?.length ? { tags } : {}), ...(f.commanderAnyCreature !== undefined ? { commanderAnyCreature: f.commanderAnyCreature as boolean } : {}), id: f.id, name: f.name, description: f.description, minCards: f.minCards, maxCards: f.maxCards,
+    if (f.updatedAt !== undefined && !str(f.updatedAt)) return fail();
+    return { ...(tags?.length ? { tags } : {}), ...(f.updatedAt !== undefined ? { updatedAt: f.updatedAt as string } : {}), ...(f.commanderAnyCreature !== undefined ? { commanderAnyCreature: f.commanderAnyCreature as boolean } : {}), id: f.id, name: f.name, description: f.description, minCards: f.minCards, maxCards: f.maxCards,
       minSideboard: (f.minSideboard ?? 0) as number, maxSideboard: f.maxSideboard, copyLimit: f.copyLimit,
       ...(f.releasedAfter !== undefined ? { releasedAfter: f.releasedAfter as string } : {}), ...(f.releasedBefore !== undefined ? { releasedBefore: f.releasedBefore as string } : {}),
       ...Object.fromEntries(['gameplayOnly', 'checkCardRoles'].filter(key => f[key] !== undefined).map(key => [key, f[key]])),
@@ -467,13 +469,13 @@ export function parseLibrary(raw: string): Library {
     return { ...(d.tags !== undefined ? { tags: normalizeTags(d.tags as string[]) } : {}), id: d.id, name: d.name, formatId: d.formatId, notes: d.notes, updatedAt: d.updatedAt, cards,
       ...(d.views !== undefined ? { views } : {}), ...(d.layout !== undefined ? { layout } : {}) };
   });
-  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10) return fail();
+  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10 && value.defaultsVersion !== 11) return fail();
   const preferences: Record<string, CardInfo> = {};
   if (value.preferredPrintings !== undefined) {
     if (!object(value.preferredPrintings)) return fail();
     for (const [key, rawInfo] of Object.entries(value.preferredPrintings)) { const printing = info(rawInfo); if (!name(key) || !printing?.scryfallId) return fail(); Object.defineProperty(preferences, normalizeName(key), { value: printing, enumerable: true, writable: true, configurable: true }); }
   }
-  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
+  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
 }
 
 export interface ValuedCard { name: string; value: number }

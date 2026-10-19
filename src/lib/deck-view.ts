@@ -1,12 +1,13 @@
 import { cardPoints } from './model.ts';
 import type { BoardView, CardEntry, CardSort, Format } from './model.ts';
+import { frontTypeLine } from './card-types.ts';
 export const DEFAULT_VIEW: BoardView = { sort: 'manaValue', group: 'type', direction: 'asc', display: 'compact', details: ['manaCost', 'tags'], cardSize: 170 };
 export function boardView(saved?: BoardView): BoardView { return { ...DEFAULT_VIEW, ...saved, display: saved?.display === 'cards' ? 'cards' : 'compact', details: saved?.details ?? [...DEFAULT_VIEW.details!] }; }
 export const SORT_LABELS: Record<CardSort, string> = { name: 'Alphabetical', manaValue: 'Mana value', colors: 'Colors', colorIdentity: 'Color identity', price: 'Price (USD)', points: 'Points', type: 'Type', rarity: 'Rarity', tags: 'Tags' };
 const rarityOrder = ['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'];
 const colorNames: Record<string, string> = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
 const colors = (value: string[]) => 'WUBRG'.split('').filter(c => value.includes(c));
-const type = (card: CardEntry) => card.info?.typeLine?.split(/[—-]/)[0].replace(/\b(?:Basic|Legendary|Snow|World|Ongoing)\s*/g, '').trim() || null;
+const type = (card: CardEntry) => frontTypeLine(card).split(/[—-]/)[0].replace(/\b(?:Basic|Legendary|Snow|World|Ongoing)\s*/g, '').trim() || null;
 function value(card: CardEntry, key: CardSort, format?: Format): string | number | null {
   switch (key) {
     case 'name': return card.name.toLowerCase();

@@ -4,17 +4,22 @@
   import { parseBackupText } from './lib/transfer';
   import DeckEditor from './components/DeckEditor.svelte';
   import FormatEditor from './components/FormatEditor.svelte';
-  import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, parseFormatText, normalizeName, validateDeck } from './lib/model';
+  import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, deckText, parseDeckText, parseFormatText, normalizeName, validateDeck } from './lib/model';
   import { addDefaultFormats, isDefaultFormat } from './lib/default-formats';
   import type { Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
 
+  const THEME_KEY = 'format-forge.theme';
+  function readTheme(): 'dark' | 'light' {
+    try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+  }
   const loaded = loadLibrary();
   let library = $state(loaded.library);
   let writable = $state(loaded.writable);
   let storageError = $state(loaded.error);
   let recovery = $state(loaded.recovery);
   let notice = $state('');
+  let theme = $state<'dark' | 'light'>(readTheme());
   let transferOpen = $state(false);
   let page = $state<'home' | 'decks' | 'formats'>('home');
   let selectedId = $state<string | null>(null);
@@ -22,15 +27,26 @@
   let search = $state('');
   let filter = $state(''), tagFilter = $state(''), deckSort = $state('updated');
   const deckTags = $derived([...new Set(library.decks.flatMap(d => d.tags ?? []))].sort());
-  let formatSearch = $state(''), formatTagFilter = $state(''), formatSort = $state('name'), formatGroup = $state('default');
+  let formatSearch = $state(''), formatTagFilter = $state(''), formatSort = $state('updated'), formatGroup = $state('default');
   const formatTags = $derived([...new Set(library.formats.flatMap(f => f.tags ?? []))].sort());
   let creating = $state(false);
   let deckName = $state('');
-  let newFormatId = $state(loaded.library.formats[0]?.id ?? '');
+  let newFormatId = $state('no-format');
+  let importingDeck = $state(false), deckImportName = $state(''), deckImportText = $state(''), deckImportFormatId = $state('no-format'), deckImportError = $state('');
+  let deckGroup = $state('none');
   const selected = $derived(library.decks.find(d => d.id === selectedId));
   const primaryFormatTag = (format: Format) => (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default').sort((a, b) => a.localeCompare(b))[0] ?? ((format.tags ?? []).some(tag => tag.toLocaleLowerCase() === 'default') ? 'Default' : '');
   const visibleDecks = $derived(library.decks.filter(d => `${d.name} ${(d.tags ?? []).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (!filter || d.formatId === filter) && (!tagFilter || d.tags?.includes(tagFilter))).sort((a, b) => deckSort === 'name' ? a.name.localeCompare(b.name) : deckSort === 'tag' ? (a.tags?.[0] ?? '').localeCompare(b.tags?.[0] ?? '') || a.name.localeCompare(b.name) : deckSort === 'format' ? (library.formats.find(f => f.id === a.formatId)?.name ?? '').localeCompare(library.formats.find(f => f.id === b.formatId)?.name ?? '') || a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
-  const visibleFormats = $derived(library.formats.filter(f => `${f.name} ${f.description} ${(f.tags ?? []).join(' ')}`.toLocaleLowerCase().includes(formatSearch.toLocaleLowerCase()) && (!formatTagFilter || f.tags?.includes(formatTagFilter))).sort((a, b) => formatSort === 'decks' ? library.decks.filter(d => d.formatId === b.id).length - library.decks.filter(d => d.formatId === a.id).length || a.name.localeCompare(b.name) : formatSort === 'tag' ? primaryFormatTag(a).localeCompare(primaryFormatTag(b)) || a.name.localeCompare(b.name) : formatSort === 'default' ? Number(!isDefaultFormat(a.id)) - Number(!isDefaultFormat(b.id)) || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)));
+  const deckGroups = $derived.by(() => {
+    if (deckGroup === 'none') return [{ name: '', decks: visibleDecks }];
+    const groups = new Map<string, Deck[]>();
+    for (const deck of visibleDecks) {
+      const name = deckGroup === 'format' ? library.formats.find(f => f.id === deck.formatId)?.name ?? 'No format' : deck.tags?.[0] ?? 'Untagged';
+      groups.set(name, [...(groups.get(name) ?? []), deck]);
+    }
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, decks]) => ({ name, decks }));
+  });
+  const visibleFormats = $derived(library.formats.filter(f => `${f.name} ${f.description} ${(f.tags ?? []).join(' ')}`.toLocaleLowerCase().includes(formatSearch.toLocaleLowerCase()) && (!formatTagFilter || f.tags?.includes(formatTagFilter))).sort((a, b) => formatSort === 'updated' ? (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.name.localeCompare(b.name) : formatSort === 'decks' ? library.decks.filter(d => d.formatId === b.id).length - library.decks.filter(d => d.formatId === a.id).length || a.name.localeCompare(b.name) : formatSort === 'tag' ? primaryFormatTag(a).localeCompare(primaryFormatTag(b)) || a.name.localeCompare(b.name) : formatSort === 'default' ? Number(!isDefaultFormat(a.id)) - Number(!isDefaultFormat(b.id)) || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)));
   const formatGroups = $derived.by(() => {
     if (formatGroup === 'none') return [{ name: '', formats: visibleFormats }];
     const groups = new Map<string, Format[]>();
@@ -47,6 +63,10 @@
     const snapshot = JSON.stringify(library);
     if (writable) storageError = saveLibrary(JSON.parse(snapshot));
   });
+  $effect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* The current theme still applies for this tab. */ }
+  });
 
   function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
   function newFormat() {
@@ -54,8 +74,9 @@
   }
   function autosaveFormat(format?: Format) {
     if (!format || isDefaultFormat(format.id)) return;
-    if (library.formats.some(f => f.id === format.id)) library.formats = library.formats.map(f => f.id === format.id ? format : f);
-    else library.formats = [...library.formats, format];
+    const saved = { ...format, updatedAt: new Date().toISOString() };
+    if (library.formats.some(f => f.id === saved.id)) library.formats = library.formats.map(f => f.id === saved.id ? saved : f);
+    else library.formats = [...library.formats, saved];
   }
   function deleteFormat(format: Format) {
     if (isDefaultFormat(format.id)) { notice = 'Default formats cannot be deleted.'; return; }
@@ -63,7 +84,7 @@
     if (confirm(`Delete the format "${format.name}"?`)) library.formats = library.formats.filter(f => f.id !== format.id);
   }
   function duplicateFormat(format: Format) {
-    const copy = { ...format, id: crypto.randomUUID(), name: `${format.name.slice(0, 193)} (copy)`, tags: (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default'), allowedSets: [...format.allowedSets], banned: [...format.banned] };
+    const copy = { ...format, id: crypto.randomUUID(), name: `${format.name.slice(0, 193)} (copy)`, updatedAt: new Date().toISOString(), tags: (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default'), allowedSets: [...format.allowedSets], banned: [...format.banned] };
     library.formats = [...library.formats, copy]; notice = 'Format duplicated.';
   }
   function exportFormat(format: Format) { download(formatText(format), `${format.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'format'}.format.json`); }
@@ -72,12 +93,12 @@
     if (!file) return;
     try {
       if (file.size > 1024 * 1024) throw new Error('Choose a format file smaller than 1 MB.');
-      const formats = parseFormatText(await file.text()).map(f => ({ ...f, id: crypto.randomUUID(), tags: (f.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default') }));
+      const formats = parseFormatText(await file.text()).map(f => ({ ...f, id: crypto.randomUUID(), updatedAt: new Date().toISOString(), tags: (f.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default') }));
       library.formats = [...library.formats, ...formats]; notice = 'Format imported.';
     } catch (e) { notice = e instanceof Error ? e.message : 'Could not import the format.'; }
     finally { input.value = ''; }
   }
-  function startDeck() { newFormatId = library.formats[0]?.id ?? ''; deckName = ''; creating = true; }
+  function startDeck() { newFormatId = 'no-format'; deckName = ''; creating = true; importingDeck = false; }
   function createDeck(event: SubmitEvent) {
     event.preventDefault();
     if (!deckName.trim() || !library.formats.some(f => f.id === newFormatId)) return;
@@ -85,6 +106,31 @@
     library.decks = [...library.decks, deck]; selectedId = deck.id; creating = false;
   }
   function updateDeck(deck: Deck) { library.decks = library.decks.map(d => d.id === deck.id ? deck : d); }
+  function startDeckImport() { importingDeck = true; creating = false; deckImportName = ''; deckImportText = ''; deckImportFormatId = 'no-format'; deckImportError = ''; }
+  async function loadDeckImport(event: Event) {
+    const input = event.currentTarget as HTMLInputElement, file = input.files?.[0];
+    if (!file) return;
+    try {
+      if (file.size > 1024 * 1024) throw new Error('Choose a decklist smaller than 1 MB.');
+      deckImportText = await file.text(); deckImportName = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
+      const specified = deckImportText.match(/^\s*Format\s*:\s*(.+)\s*$/im)?.[1]?.trim();
+      const found = specified && library.formats.find(f => normalizeName(f.name) === normalizeName(specified));
+      if (found) deckImportFormatId = found.id;
+      deckImportError = '';
+    } catch (e) { deckImportError = e instanceof Error ? e.message : 'Could not read the decklist.'; }
+    finally { input.value = ''; }
+  }
+  function importDeck(event: SubmitEvent) {
+    event.preventDefault(); deckImportError = '';
+    try {
+      const format = library.formats.find(f => f.id === deckImportFormatId);
+      if (!format) throw new Error('Choose a deck format.');
+      const list = deckImportText.replace(/^\s*Format\s*:\s*.+\s*$/im, '');
+      const cards = parseDeckText(list);
+      const deck: Deck = { id: crypto.randomUUID(), name: deckImportName.trim() || 'Imported deck', formatId: format.id, notes: '', cards, updatedAt: new Date().toISOString() };
+      library.decks = [...library.decks, deck]; selectedId = deck.id; importingDeck = false;
+    } catch (e) { deckImportError = e instanceof Error ? e.message : 'Could not import deck.'; }
+  }
   function deleteDeck(deck: Deck) {
     if (!confirm(`Delete "${deck.name}" and its card list?`)) return;
     library.decks = library.decks.filter(d => d.id !== deck.id); selectedId = null; notice = 'Deck deleted.';
@@ -93,6 +139,7 @@
     const copy = { ...deck, id: crypto.randomUUID(), name: `${deck.name.slice(0, 193)} (copy)`, cards: deck.cards.map(c => ({ ...c, id: crypto.randomUUID() })), updatedAt: new Date().toISOString() };
     library.decks = [...library.decks, copy]; selectedId = copy.id;
   }
+  function exportDeck(deck: Deck) { download(deckText(deck), `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain'); }
   function restoreBackup(raw: string, filename: string): boolean {
     const imported = parseBackupText(raw);
     if (!confirm(`Replace this library with ${imported.decks.length} decks and ${imported.formats.length} formats from "${filename}"? Export a full backup first if you want to keep your current library.`)) return false;
@@ -105,10 +152,10 @@
   }
 </script>
 
-<div class="app-shell">
+<div class="app-shell" data-theme={theme}>
   <header class="app-header">
     <nav aria-label="Main navigation"><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button></nav>
-    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
+    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
   </header>
   <main class:builder-main={!!selected}>
     <ScryfallStatus />
@@ -120,19 +167,20 @@
     {:else if page === 'home'}
       <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Build Magic decks for the formats you want to play.</p><p>Custom card pools, bans, restrictions, points and price limits. Start with a default format or make your own.</p><div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div><p class="help">Decks and preferences save on this device. Use Library import / export to move your collection or keep a backup.</p></section>
     {:else if page === 'decks'}
-      <div class="page-heading"><h1>Decks</h1><button class="primary" onclick={startDeck} disabled={!library.formats.length}>+ New deck</button></div>
+      <div class="page-heading"><h1>Decks</h1><div class="page-actions"><button class="secondary" onclick={startDeckImport}>Import deck</button><button class="primary" onclick={startDeck} disabled={!library.formats.length}>+ New deck</button></div></div>
       {#if creating}<section class="panel create-deck"><form onsubmit={createDeck}><label>Deck name<input bind:value={deckName} required maxlength="200" /></label><label>Format<select bind:value={newFormatId}>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><button class="primary" type="submit">Create deck</button><button class="quiet" type="button" onclick={() => creating = false}>Cancel</button></form></section>{/if}
-      <div class="library-toolbar"><label for="deck-search">Search<input id="deck-search" type="search" bind:value={search} placeholder="Name or tag" /></label><label for="format-filter">Format<select id="format-filter" bind:value={filter}><option value="">All formats</option>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><label>Tag<select aria-label="Filter decks by tag" bind:value={tagFilter}><option value="">All tags</option>{#each deckTags as tag}<option>{tag}</option>{/each}</select></label><label>Sort<select aria-label="Sort decks" bind:value={deckSort}><option value="updated">Recently updated</option><option value="name">Name</option><option value="format">Format</option><option value="tag">Tag</option></select></label></div>
+      {#if importingDeck}<section class="panel deck-import-panel"><div class="section-heading"><h2>Import deck</h2><button class="section-close" aria-label="Close deck import" onclick={() => importingDeck = false}>×</button></div><form onsubmit={importDeck}><div class="deck-import-options"><label>Deck name<input bind:value={deckImportName} maxlength="200" placeholder="Imported deck" /></label><label>Format<select bind:value={deckImportFormatId}>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={loadDeckImport} /></label></div><label>Decklist<textarea bind:value={deckImportText} rows="8" placeholder="4 Lightning Bolt&#10;20 Mountain&#10;&#10;Sideboard&#10;2 Abrade"></textarea></label>{#if deckImportError}<p class="error" role="alert">{deckImportError}</p>{/if}<div class="transfer-actions"><button class="primary" type="submit">Import deck</button><button class="quiet" type="button" onclick={() => importingDeck = false}>Close</button></div></form></section>{/if}
+      <div class="library-toolbar"><label for="deck-search">Search<input id="deck-search" type="search" bind:value={search} placeholder="Name or tag" /></label><label for="format-filter">Format<select id="format-filter" bind:value={filter}><option value="">All formats</option>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><label>Tag<select aria-label="Filter decks by tag" bind:value={tagFilter}><option value="">All tags</option>{#each deckTags as tag}<option>{tag}</option>{/each}</select></label><label>Sort<select aria-label="Sort decks" bind:value={deckSort}><option value="updated">Recently edited</option><option value="name">Name</option><option value="format">Format</option><option value="tag">Tag</option></select></label><label>Group<select aria-label="Group decks" bind:value={deckGroup}><option value="none">No grouping</option><option value="format">By format</option><option value="tag">By tag</option></select></label></div>
       {#if library.decks.length === 0}<section class="empty-state"><p>No decks yet.</p>{#if !library.formats.length}<button class="primary" onclick={() => { navigate('formats'); newFormat(); }}>Create a format</button>{/if}</section>
       {:else if visibleDecks.length === 0}<section class="empty-state"><p>No matching decks.</p><button class="secondary" onclick={() => { search = ''; filter = ''; tagFilter = ''; }}>Clear filters</button></section>
-      {:else}<div class="deck-grid">{#each visibleDecks as deck (deck.id)}{@const format = library.formats.find(f => f.id === deck.formatId)!}{@const ruleIssues = validateDeck(deck, format)}{@const same = library.decks.filter(item => normalizeName(item.name) === normalizeName(deck.name) && item.formatId === deck.formatId)}<article class="deck-card"><button class="deck-open" onclick={() => selectedId = deck.id}><h2 class="deck-card-title"><span class="deck-title-text">{deck.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === deck.id) + 1}</small>{/if}</span>{#if ruleIssues.length}<span class="deck-rule-warning" role="img" title={ruleIssues.join('\n')} aria-label={`${ruleIssues.length} saved rule issues`}><svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 22 21H2Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v5m0 3v1" stroke="currentColor" stroke-width="2" /></svg><span>{ruleIssues.length}</span></span>{/if}</h2>{#if deck.tags?.length}<span class="library-tag-list">{#each deck.tags as tag}<span class="library-tag">{tag}</span>{/each}</span>{/if}<span>{format.name}</span><span>{deckSize(deck)} deck · {sideboardSize(deck, format)} sideboard</span></button><div class="deck-card-footer"><button class="quiet" onclick={() => duplicate(deck)} aria-label={`Duplicate ${deck.name}`}>Duplicate</button><button class="quiet danger" onclick={() => deleteDeck(deck)} aria-label={`Delete ${deck.name}`}>Delete</button></div></article>{/each}</div>{/if}
+      {:else}{#each deckGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="deck-grid">{#each group.decks as deck (deck.id)}{@const format = library.formats.find(f => f.id === deck.formatId)!}{@const ruleIssues = validateDeck(deck, format)}{@const same = library.decks.filter(item => normalizeName(item.name) === normalizeName(deck.name) && item.formatId === deck.formatId)}<article class="deck-card"><button class="deck-open" onclick={() => selectedId = deck.id}><h2 class="deck-card-title"><span class="deck-title-text">{deck.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === deck.id) + 1}</small>{/if}</span>{#if ruleIssues.length}<span class="deck-rule-warning" role="img" title={ruleIssues.join('\n')} aria-label={`${ruleIssues.length} saved rule issues`}><svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 22 21H2Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v5m0 3v1" stroke="currentColor" stroke-width="2" /></svg><span>{ruleIssues.length}</span></span>{/if}</h2>{#if deck.tags?.length}<span class="library-tag-list">{#each deck.tags as tag}<span class="library-tag">{tag}</span>{/each}</span>{/if}<span>{format.name}</span><span>{deckSize(deck)} deck · {sideboardSize(deck, format)} sideboard</span></button><div class="deck-card-footer"><button class="quiet" onclick={() => duplicate(deck)} aria-label={`Duplicate ${deck.name}`}>Duplicate</button><button class="quiet" onclick={() => exportDeck(deck)} aria-label={`Export ${deck.name}`}>Export</button><button class="quiet danger" onclick={() => deleteDeck(deck)} aria-label={`Delete ${deck.name}`}>Delete</button></div></article>{/each}</div>{/each}{/if}
     {:else}
       <div class="page-heading"><h1>Formats</h1><div class="format-page-actions"><label class="file-button secondary">Import format<input type="file" accept=".json,application/json" onchange={importFormat} /></label><button class="primary" onclick={newFormat}>+ New format</button></div></div>
       {#if editing}{#key editing.id}<FormatEditor readOnly={isDefaultFormat(editing.id)} format={editing} onchange={autosaveFormat} onback={() => editing = null} />{/key}
-      {:else}<div class="library-toolbar format-library-toolbar"><label for="format-search">Search<input id="format-search" type="search" bind:value={formatSearch} placeholder="Name, description, tag" /></label><label>Tag<select aria-label="Filter formats by tag" bind:value={formatTagFilter}><option value="">All tags</option>{#each formatTags as tag}<option value={tag}>{tag}</option>{/each}</select></label><label>Sort<select aria-label="Sort formats" bind:value={formatSort}><option value="name">Name</option><option value="decks">Deck count</option><option value="tag">Tag</option><option value="default">Default first</option></select></label><label>Group<select aria-label="Group formats" bind:value={formatGroup}><option value="none">No grouping</option><option value="tag">By tag</option><option value="default">Default / custom</option></select></label></div>
+      {:else}<div class="library-toolbar format-library-toolbar"><label for="format-search">Search<input id="format-search" type="search" bind:value={formatSearch} placeholder="Name, description, tag" /></label><label>Tag<select aria-label="Filter formats by tag" bind:value={formatTagFilter}><option value="">All tags</option>{#each formatTags as tag}<option value={tag}>{tag}</option>{/each}</select></label><label>Sort<select aria-label="Sort formats" bind:value={formatSort}><option value="updated">Recently edited</option><option value="name">Name</option><option value="decks">Deck count</option><option value="tag">Tag</option><option value="default">Default first</option></select></label><label>Group<select aria-label="Group formats" bind:value={formatGroup}><option value="none">No grouping</option><option value="tag">By tag</option><option value="default">Default / custom</option></select></label></div>
         {#if library.formats.length === 0}<section class="empty-state"><p>No formats yet.</p></section>
         {:else if !visibleFormats.length}<section class="empty-state"><p>No matching formats.</p><button class="secondary" onclick={() => { formatSearch = ''; formatTagFilter = ''; }}>Clear filters</button></section>
-        {:else}{#each formatGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="format-grid">{#each group.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}{@const same = library.formats.filter(item => normalizeName(item.name) === normalizeName(format.name))}{@const visibleTags = (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default')}<article class="panel format-card"><div class="section-heading"><h2>{format.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === format.id) + 1}</small>{/if}{#if isDefaultFormat(format.id)}<small class="library-tag default-format-badge">Default</small>{/if}</h2>{#if used > 0}<span class="format-deck-count">{used} {used === 1 ? 'deck' : 'decks'}</span>{/if}</div>{#if format.description}<p class="format-description">{format.description}</p>{/if}{#if visibleTags.length}<div class="format-tags">{#each visibleTags as tag}<span class="library-tag">{tag}</span>{/each}</div>{/if}<div class="format-card-actions"><button class="secondary" onclick={() => editing = format}>{isDefaultFormat(format.id) ? 'View' : 'Edit'}</button><button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button><button class="quiet" onclick={() => exportFormat(format)}>Export</button><button class="quiet danger" disabled={isDefaultFormat(format.id) || used > 0} title={isDefaultFormat(format.id) ? 'Default formats cannot be deleted' : used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button></div></article>{/each}</div>{/each}{/if}{/if}
+        {:else}{#each formatGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="format-grid">{#each group.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}{@const same = library.formats.filter(item => normalizeName(item.name) === normalizeName(format.name))}{@const visibleTags = (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default')}<article class="panel format-card"><button type="button" class="format-card-open" onclick={() => editing = format}><div class="section-heading"><h2>{format.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === format.id) + 1}</small>{/if}{#if isDefaultFormat(format.id)}<small class="library-tag default-format-badge">Default</small>{/if}</h2>{#if used > 0}<span class="format-deck-count">{used} {used === 1 ? 'deck' : 'decks'}</span>{/if}</div>{#if format.description}<p class="format-description">{format.description}</p>{/if}{#if visibleTags.length}<div class="format-tags">{#each visibleTags as tag}<span class="library-tag">{tag}</span>{/each}</div>{/if}</button><div class="format-card-actions"><button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button><button class="quiet" onclick={() => exportFormat(format)}>Export</button><button class="quiet danger" disabled={isDefaultFormat(format.id) || used > 0} title={isDefaultFormat(format.id) ? 'Default formats cannot be deleted' : used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button></div></article>{/each}</div>{/each}{/if}{/if}
     {/if}
   </main>
 </div>

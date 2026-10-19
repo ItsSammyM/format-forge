@@ -1,15 +1,17 @@
 import { cardPoints, RARITIES } from './model.ts';
 import type { CardEntry, Deck, Format } from './model.ts';
+import { cardTypeFaces, frontTypeLine, isMdfcLand } from './card-types.ts';
 export const MANA_COLORS = ['W', 'U', 'B', 'R', 'G'] as const;
 export function deckStats(deck: Deck, handSize = 7) {
   const curve = Array.from({ length: 9 }, (_, value) => ({ label: value === 8 ? '8+' : String(value), count: 0 }));
   const pips: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-  let lands = 0, unresolved = 0, curveUnknown = 0, size = 0;
+  let lands = 0, mdfcs = 0, unresolved = 0, curveUnknown = 0, size = 0;
   for (const card of deck.cards.filter(c => c.zone === 'main')) size += card.quantity;
   for (const card of deck.cards.filter(c => c.zone === 'main' || c.zone === 'commander')) {
-    const frontType = card.info?.typeLine.split(' // ')[0];
+    const frontType = frontTypeLine(card);
     if (!frontType) { unresolved += card.quantity; continue; }
     if (/\bLand\b/.test(frontType)) { if (card.zone === 'main') lands += card.quantity; continue; }
+    if (card.zone === 'main' && isMdfcLand(card)) mdfcs += card.quantity;
     const mv = card.info?.manaValue;
     if (mv == null || !Number.isFinite(mv)) curveUnknown += card.quantity;
     else curve[Math.min(8, Math.max(0, Math.floor(mv)))].count += card.quantity;
@@ -22,7 +24,7 @@ export function deckStats(deck: Deck, handSize = 7) {
   }
   const totalColored = MANA_COLORS.reduce((sum, c) => sum + pips[c], 0);
   const hand = Math.min(size, Math.max(0, Math.floor(Number.isFinite(handSize) ? handSize : 7)));
-  return { curve, pips, totalColored, lands, unresolved, curveUnknown, size, hand, expectedLands: size ? hand * lands / size : 0 };
+  return { curve, pips, totalColored, lands, mdfcs, unresolved, curveUnknown, size, hand, expectedLands: size ? hand * (lands + mdfcs) / size : 0 };
 }
 
 export type HandFilterKind = 'type' | 'tag' | 'manaValue' | 'colors' | 'colorIdentity' | 'rarity' | 'set' | 'points' | 'price';
@@ -35,8 +37,10 @@ function matchesHandFilter(card: CardEntry, filter: HandFilter, format?: Format)
   switch (filter.kind) {
     case 'tag': return !!card.tags?.some(tag => tag.toLowerCase() === value);
     case 'type': {
-      const type = info?.typeLine?.split(' // ')[0].split(/[—-]/)[0];
-      return type ? type.toLowerCase().split(/\s+/).includes(value) : undefined;
+      const faces = cardTypeFaces(card).map(face => face.split(/[—-]/)[0].toLowerCase().split(/\s+/));
+      if (!faces.length) return undefined;
+      // Land counts include the land face of MDFCs; other type filters use the front face.
+      return value === 'land' ? faces.some(types => types.includes('land')) : faces[0].includes(value);
     }
     case 'manaValue':
     case 'points':

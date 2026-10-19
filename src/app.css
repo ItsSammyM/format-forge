@@ -475,6 +475,9 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 .format-card { padding: 11px; }
 .format-card { display:flex; flex-direction:column; }
 .format-card-actions { margin-top:auto; }
+.format-card-open { display:block; width:100%; min-height:0; padding:0; border:0; border-radius:4px; text-align:left; white-space:normal; color:inherit; background:transparent; }
+.format-card-open:focus-visible { outline-offset:2px; }
+.format-card-open .section-heading { color:inherit; }
 .format-card .section-heading { margin-bottom: 3px; gap:6px; }
 .format-card h2 { display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0; margin:0; font-size:16px; }
 .format-card .format-description { font-size: 13px; line-height: 1.45; margin: 5px 0; }
@@ -546,9 +549,15 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 
 /* Keep related actions together without introducing a lone wrapped button. */
 .format-card { container-type:inline-size; }
-.format-card-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+.format-card-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
 .format-card-actions > button { min-width:0; padding:6px 5px; }
-@container(min-width:260px) { .format-card-actions { grid-template-columns:repeat(4,auto); } }
+@container(min-width:260px) { .format-card-actions { grid-template-columns:repeat(3,auto); } }
+.page-actions { display:flex; align-items:center; gap:6px; }
+.deck-import-panel { margin:0 0 12px; }
+.deck-import-panel form { display:grid; gap:8px; }
+.deck-import-options { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:end; gap:9px; }
+.deck-import-panel .file-button { min-height:33px; }
+@media(max-width:600px) { .deck-import-options { grid-template-columns:1fr; }.page-actions { flex-wrap:wrap; justify-content:flex-end; }.format-card-actions { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 .editor-panel form { row-gap:8px; }.editor-panel .format-rule-dropdown { margin:0; }
 .reopen-windows { background:#eaf1e4; border-color:#90aa7d; box-shadow:inset 0 0 0 1px #90aa7d22; }.reopen-windows > span { color:#47613e; }
 .transfer-tabs { flex-wrap:wrap; align-items:center; margin-bottom:8px; }
@@ -580,3 +589,175 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 .deck-transfer-toolbar .transfer-submit, .deck-transfer-export-actions { margin-left:auto; }
 .deck-transfer-column > textarea { flex:0 0 auto; min-height:110px; max-height:none; resize:vertical; overflow:auto; }
 @media (max-width:700px) { .deck-transfer-columns { grid-template-columns:minmax(0,1fr); } .deck-transfer-toolbar > select { min-height:40px; font-size:16px; } }
+
+html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; background:#111814; color:#e4ebe4; }
+.app-shell[data-theme="dark"] { --green:#9dc5a6; --border:#35443a; --muted:#a4b0a5; color:#e4ebe4; background:#111814; min-height:100vh; }
+.app-shell[data-theme="dark"] .app-header,
+.app-shell[data-theme="dark"] .panel,
+.app-shell[data-theme="dark"] .deck-card,
+.app-shell[data-theme="dark"] .format-card,
+.app-shell[data-theme="dark"] .card-details-panel,
+.app-shell[data-theme="dark"] .card-search,
+.app-shell[data-theme="dark"] .stats-panel,
+.app-shell[data-theme="dark"] .primer-window,
+.app-shell[data-theme="dark"] .deck-transfer,
+.app-shell[data-theme="dark"] .library-transfer-dialog,
+.app-shell[data-theme="dark"] .format-check .check-content,
+.app-shell[data-theme="dark"] .deck-actions-menu > div,
+.app-shell[data-theme="dark"] .backup-menu > div { color:#e4ebe4; background:#1b251f; border-color:#35443a; }
+.app-shell[data-theme="dark"] .app-header { background:#17211b; }
+.app-shell[data-theme="dark"] input,
+.app-shell[data-theme="dark"] select,
+.app-shell[data-theme="dark"] textarea { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
+.app-shell[data-theme="dark"] input::placeholder,
+.app-shell[data-theme="dark"] textarea::placeholder { color:#8d9c90; }
+.app-shell[data-theme="dark"] .secondary { color:#d8e8d9; background:#222e26; border-color:#46574a; }
+.app-shell[data-theme="dark"] .secondary:hover,
+.app-shell[data-theme="dark"] .quiet:hover { background:#2d3b31; }
+.app-shell[data-theme="dark"] .primary { color:#102017; background:#a7c9a6; border-color:#a7c9a6; }
+.app-shell[data-theme="dark"] .primary:hover { background:#bad6b8; }
+.app-shell[data-theme="dark"] .quiet { color:#b2beb3; }
+.app-shell[data-theme="dark"] .danger { color:#ffb6a5; border-color:#744d43; }
+.app-shell[data-theme="dark"] nav button.active { color:#d9eddb; background:#2a3d30; }
+.app-shell[data-theme="dark"] .deck-open { color:#e0e9e0; }
+.app-shell[data-theme="dark"] .deck-open:hover,
+.app-shell[data-theme="dark"] .format-card-open:hover { background:#233129; }
+.app-shell[data-theme="dark"] .deck-card-footer,
+.app-shell[data-theme="dark"] .format-card-actions,
+.app-shell[data-theme="dark"] .format-card .section-heading,
+.app-shell[data-theme="dark"] .board-heading,
+.app-shell[data-theme="dark"] .search-pane-heading { border-color:#35443a; }
+.app-shell[data-theme="dark"] .library-tag,
+.app-shell[data-theme="dark"] .card-tags > span { color:#c4e4d0; background:#294438; }
+.app-shell[data-theme="dark"] .empty-state { color:#b6c2b7; background:#18221c; border-color:#405348; }
+.rule-list-view-controls { display:flex; flex-wrap:wrap; gap:.5rem; margin:.35rem 0 .65rem; }
+.rule-list-view-controls label { display:flex; align-items:center; gap:.35rem; font-size:.88rem; }
+.rule-list-view-controls select { min-width:7.5rem; }
+.rule-list-group-heading { margin:.65rem 0 .25rem; color:var(--muted); font-size:.82rem; font-weight:650; }
+.app-shell[data-theme="dark"] .notice { color:#dceadd; background:#22352a; border-color:#3b5a43; }
+.app-shell[data-theme="dark"] .alert,
+.app-shell[data-theme="dark"] .error { color:#ffd1c4; background:#3a211e; border-color:#76463d; }
+.app-shell[data-theme="dark"] .reopen-windows { background:#203127; border-color:#49664e; }
+.app-shell[data-theme="dark"] .set-chip,
+.app-shell[data-theme="dark"] .format-rule-dropdown,
+.app-shell[data-theme="dark"] .board,
+.app-shell[data-theme="dark"] .search-pane,
+.app-shell[data-theme="dark"] .search-results,
+.app-shell[data-theme="dark"] .board-card-list,
+.app-shell[data-theme="dark"] .search-controls,
+.app-shell[data-theme="dark"] .restriction-row,
+.app-shell[data-theme="dark"] .rule-card-row,
+.app-shell[data-theme="dark"] .set-options label,
+.app-shell[data-theme="dark"] fieldset { background-color:#18221c; border-color:#35443a; }
+.app-shell[data-theme="dark"] .deck-row,
+.app-shell[data-theme="dark"] .card-group-heading,
+.app-shell[data-theme="dark"] .format-group-heading { color:#c8dfca; border-color:#35443a; }
+.app-shell[data-theme="dark"] .mana-curve-bar { background:#8abf91; }
+.app-shell[data-theme="dark"] .set-chip { color:#d1e7d1; }
+.app-shell[data-theme="dark"] .modal-backdrop { background:#050907bb; }
+.app-shell[data-theme="dark"] dialog::backdrop { background:#050907bb; }
+.app-shell[data-theme="dark"] .format-card-open { color:inherit; }
+.app-shell[data-theme="dark"] .builder-details,
+.app-shell[data-theme="dark"] .board-heading,
+.app-shell[data-theme="dark"] .search-controls,
+.app-shell[data-theme="dark"] .search-pane-heading,
+.app-shell[data-theme="dark"] .card-group-heading,
+.app-shell[data-theme="dark"] .board-view-popover,
+.app-shell[data-theme="dark"] .search-options-popover,
+.app-shell[data-theme="dark"] .zone-height-handle,
+.app-shell[data-theme="dark"] .zone-view-button,
+.app-shell[data-theme="dark"] .row-quantity-buttons button,
+.app-shell[data-theme="dark"] .image-board .row-quantity-buttons,
+.app-shell[data-theme="dark"] .image-board .entry-count,
+.app-shell[data-theme="dark"] .deck-toolbar .format-check,
+.app-shell[data-theme="dark"] .deck-toolbar .format-check:not(.has-issues) { background:#202c24; border-color:#3a4a3e; color:#d4e3d4; }
+.app-shell[data-theme="dark"] .deck-toolbar .format-check.has-issues { background:#382d1e; border-color:#6b5633; color:#e6cb8c; }
+.app-shell[data-theme="dark"] .deck-toolbar .format-check .check-content,
+.app-shell[data-theme="dark"] .deck-actions-menu > div,
+.app-shell[data-theme="dark"] .builder-details > textarea { background:#18221c; }
+.app-shell[data-theme="dark"] .deck-title-input:hover,
+.app-shell[data-theme="dark"] .deck-title-input:focus,
+.app-shell[data-theme="dark"] .zone-view-button:hover,
+.app-shell[data-theme="dark"] .row-quantity-buttons button:hover { background:#2b3b30; color:#e7f0e7; }
+.app-shell[data-theme="dark"] .deck-card-name { color:#a9c7aa; }
+.app-shell[data-theme="dark"] .deck-card-name .card-text,
+.app-shell[data-theme="dark"] .deck-card-name .entry-count,
+.app-shell[data-theme="dark"] .deck-card-name .card-list-details small { color:#e0e9e0; }
+.app-shell[data-theme="dark"] .deck-card-name .mana-cost-pip,
+.app-shell[data-theme="dark"] .deck-card-name .mana-cost-pip .mana-symbol { color:#181818; }
+.app-shell[data-theme="dark"] .deck-row { border-color:#2d3a30; }
+.app-shell[data-theme="dark"] .builder-details summary,
+.app-shell[data-theme="dark"] .advanced-search,
+.app-shell[data-theme="dark"] .search-destination,
+.app-shell[data-theme="dark"] .board-heading > span,
+.app-shell[data-theme="dark"] .card-group-heading { color:#b7c8b8; }
+.app-shell[data-theme="dark"] .card-group-heading { background:#202c24; }
+.app-shell[data-theme="dark"] .board.drop-highlight { background:#23352a; outline-color:#7fb28a; }
+.app-shell[data-theme="dark"] .search-workspace > .split-pane > .resize-handle,
+.app-shell[data-theme="dark"] .resize-handle::after { background:#26342a; border-color:#3a4a3e; }
+.app-shell[data-theme="dark"] .format-check summary,
+.app-shell[data-theme="dark"] .deck-actions-menu summary { color:#d4e3d4; }
+.app-shell[data-theme="dark"] .card-preview,
+.app-shell[data-theme="dark"] .card-editor { color:#e4ebe4; background:#1b251f; border-color:#35443a; }
+.app-shell[data-theme="dark"] .transfer-tabs .active,
+.app-shell[data-theme="dark"] nav button:last-child.active { color:#e4d9ef; background:#342b3d; border-color:#574766; }
+.app-shell[data-theme="dark"] .default-format-badge { color:#d7e7c7; background:#35472b; }
+.app-shell[data-theme="dark"] .duplicate-number { color:#c4d4e4; background:#2b3947; }
+.app-shell[data-theme="dark"] .set-options label { border-color:#2d3a30; }
+.app-shell[data-theme="dark"] .mana-curve .curve-track { background:#ffffff0a; border-color:#ffffff25; }
+.app-shell[data-theme="dark"] .pip-table th,
+.app-shell[data-theme="dark"] .pip-table td { border-color:#35443a; }
+.app-shell[data-theme="dark"] a { color:#a9d3b1; }
+.app-shell[data-theme="dark"] .format-rule-dropdown[open] { border-color:#526955; }
+.app-shell[data-theme="dark"] .format-rule-dropdown[open] > summary,
+.app-shell[data-theme="dark"] .format-rule-dropdown > summary:hover { color:#d8e8d9; background:#26372b; }
+.app-shell[data-theme="dark"] .set-picker summary,
+.app-shell[data-theme="dark"] .format-extras summary,
+.app-shell[data-theme="dark"] .advanced-search > summary,
+.app-shell[data-theme="dark"] .printing-picker > summary { color:#b9d3bd; }
+.app-shell[data-theme="dark"] .format-rule-dropdown[open] > .rule-dropdown-content,
+.app-shell[data-theme="dark"] .set-picker,
+.app-shell[data-theme="dark"] .ban-list-editor,
+.app-shell[data-theme="dark"] .valued-list-editor { color:#e0e9e0; }
+.app-shell[data-theme="dark"] .set-options label,
+.app-shell[data-theme="dark"] .set-options label:hover { color:#dce8dc; background:#1a261e; border-color:#35443a; }
+.app-shell[data-theme="dark"] .set-options label small,
+.app-shell[data-theme="dark"] .set-options label span { color:#c5d3c6; }
+.app-shell[data-theme="dark"] .rule-card-row { border-color:#35443a; }
+.app-shell[data-theme="dark"] .rule-card-row > .rule-card-name { color:#b4d6b9; }
+.app-shell[data-theme="dark"] .rule-list-group-heading { color:#b2c4b4; }
+.app-shell[data-theme="dark"] .set-chip { color:#d1e7d1; background:#293a2d; border-color:#49634b; }
+.app-shell[data-theme="dark"] .set-chip:hover { background:#354b38; }
+.app-shell[data-theme="dark"] .deck-open:hover { background:#233129; }
+.app-shell[data-theme="dark"] .deck-open .library-tag { color:#c4e4d0; }
+.app-shell[data-theme="dark"] nav button:last-child.active { color:#e4d9ef; background:#342b3d; box-shadow:inset 0 -2px 0 #8875a1; }
+.app-shell[data-theme="dark"] .danger:not(:disabled):hover { color:#ffd4ca; background:#472923; border-color:#865449; }
+.app-shell[data-theme="dark"] .section-close:hover { color:#d8e8d9; background:#2c3c30; }
+.app-shell[data-theme="dark"] .save-status { color:#b6c8b5; }
+.app-shell[data-theme="dark"] .save-status::before { background:#88b58a; }
+.app-shell[data-theme="dark"] .save-status.storage-failed { color:#f2b18f; }
+.app-shell[data-theme="dark"] .search-empty,
+.app-shell[data-theme="dark"] .result-count,
+.app-shell[data-theme="dark"] .scryfall-credit,
+.app-shell[data-theme="dark"] .board-empty,
+.app-shell[data-theme="dark"] .card-metric { color:#aab9a9; }
+.app-shell[data-theme="dark"] .search-pane-heading h2,
+.app-shell[data-theme="dark"] .card-details-rules h3 { color:#c5e1cb; }
+.app-shell[data-theme="dark"] .expected-lands strong { color:#a9d3b1; }
+.app-shell[data-theme="dark"] .printing-metadata { color:#b9cce0; }
+.app-shell[data-theme="dark"] .deck-row.over-limit:not(.illegal) .deck-card-name .card-text { color:#edc75f; }
+.app-shell[data-theme="dark"] .deck-row.illegal .deck-card-name .card-text { color:#f09b86; }
+.app-shell[data-theme="dark"] .deck-open .deck-rule-warning { color:#f0d58f; background:#3a321f; border-color:#736039; }
+.app-shell[data-theme="dark"] .set-picker summary:hover,
+.app-shell[data-theme="dark"] .format-extras summary:hover,
+.app-shell[data-theme="dark"] .advanced-search > summary:hover,
+.app-shell[data-theme="dark"] .printing-picker > summary:hover { color:#e0eee2; }
+.app-shell[data-theme="dark"] .deck-card-name:hover,
+.app-shell[data-theme="dark"] .icon-button:hover { color:#e7f0e7; background:#293a2e; }
+.app-shell[data-theme="dark"] .rule-card-name:hover { color:#d0ead4; }
+.app-shell[data-theme="dark"] .format-rule-dropdown > summary { color:#d0dfd1; }
+.app-shell[data-theme="dark"] .format-rule-dropdown > summary:hover { color:#e0eee2; }
+.app-shell[data-theme="dark"] .selected-sets { color:#dce8dc; }
+.app-shell[data-theme="dark"] .set-code-input { color:#e0e9e0; }
+.app-shell[data-theme="dark"] .pip-table { color:#dce8dc; }
+.app-shell[data-theme="dark"] .board-empty { background:transparent; }

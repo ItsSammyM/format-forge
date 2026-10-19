@@ -4,10 +4,10 @@
   import { ZONE_NAMES, ZONES, normalizeTags } from '../lib/model';
   import { cardInfo, latestOracle, loadPrintings } from '../lib/scryfall';
   import type { ScryfallCard } from '../lib/scryfall';
-  let { card, preferred, onclose, onquantity, onmove, ontags, onremove, onprinting, ondefault }: {
+  let { card, preferred, onclose, onquantity, onmove, ontags, onremove, onprinting, ondefault, oninfo }: {
     card: CardEntry | { name: string; info?: CardInfo }; preferred?: CardInfo; onclose: () => void;
     onquantity?: (delta: number) => void; onmove?: (zone: Zone, quantity: number) => void; ontags?: (id: string, tags: string[]) => void;
-    onremove?: () => void; onprinting?: (info: CardInfo) => void; ondefault?: (info: CardInfo | undefined) => void;
+    onremove?: () => void; onprinting?: (info: CardInfo) => void; ondefault?: (info: CardInfo | undefined) => void; oninfo?: (info: CardInfo) => void;
   } = $props();
   let root: HTMLElement;
   let taggingId: string | undefined, savedTagText = '';
@@ -30,7 +30,7 @@
   });
   async function fetchOracle(name: string) {
     const version = ++requestVersion; loading = true;
-    try { const result = await latestOracle(name); if (version === requestVersion) oracle = result; }
+    try { const result = await latestOracle(name); if (version === requestVersion) { oracle = result; oninfo?.(result); } }
     catch (e) { if (version === requestVersion) error = e instanceof Error ? e.message : 'Could not load Oracle text.'; }
     finally { if (version === requestVersion) loading = false; }
   }
