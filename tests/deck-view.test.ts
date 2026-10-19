@@ -76,9 +76,9 @@ test('presets have the correct cutoff sets and distinct bans', () => {
 test('default upgrade adds protected presets once and preserves edits', () => {
   const old = { ...createLibrary(), defaultsVersion: undefined, formats: createLibrary().formats.slice(0, 2) };
   const upgraded = addDefaultFormats(old);
-  assert.equal(upgraded.formats.length, 6);
+  assert.equal(upgraded.formats.length, 12);
   upgraded.formats = upgraded.formats.filter(f => f.id !== 'prefire');
-  assert.equal(addDefaultFormats(upgraded).formats.length, 6);
+  assert.equal(addDefaultFormats(upgraded).formats.length, 12);
   const custom = { ...old, formats: [{ ...defaultFormats()[0], minCards: 42 }] };
   assert.equal(addDefaultFormats(custom).formats.find(f => f.id === '2015-modern')!.minCards, 42);
 });

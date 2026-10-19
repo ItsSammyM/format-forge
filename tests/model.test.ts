@@ -219,6 +219,20 @@ test('all-section exports preserve considering and conspiracy cards', () => {
   assert.deepEqual(cards.map(c => [c.name, c.quantity, c.zone]), d.cards.map(c => [c.name, c.quantity, c.zone]));
 });
 
+test('Moxfield export and add deck plus sideboard parsing preserve separate sections', () => {
+  let d = addCard(deck(), 'Commander', 1, 'commander');
+  d = addCard(d, 'Forest', 60, 'main');
+  d = addCard(d, 'Abrade', 2, 'side');
+  const text = deckText(d, 'moxfield');
+  assert.match(text, /Commander\n1 Commander/);
+  assert.match(text, /Deck\n60 Forest/);
+  assert.match(text, /Sideboard\n2 Abrade/);
+  const imported = parseDeckText(text);
+  assert.deepEqual(imported.map(card => [card.name, card.quantity, card.zone]), d.cards.map(card => [card.name, card.quantity, card.zone]));
+  const pasted = parseDeckText('Deck\n4 Lightning Bolt\n20 Mountain\n\nSideboard\n2 Abrade\n\nConsidering\n1 Opt');
+  assert.deepEqual(pasted.map(card => [card.name, card.quantity, card.zone]), [['Lightning Bolt', 4, 'main'], ['Mountain', 20, 'main'], ['Abrade', 2, 'side'], ['Opt', 1, 'considering']]);
+});
+
 test('old browser libraries migrate new fields without losing decks', () => {
   const library = createLibrary();
   const oldFormat = { ...library.formats[0] } as Partial<Format>;

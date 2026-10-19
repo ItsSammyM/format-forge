@@ -41,7 +41,7 @@ export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction
 export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; special?: Partial<Record<Zone, number>> }
 export interface CardEntry { id: string; name: string; quantity: number; zone: Zone; info?: CardInfo; tags?: string[] }
 export interface Deck { id: string; name: string; formatId: string; notes: string; cards: CardEntry[]; updatedAt: string; views?: Partial<Record<Zone, BoardView>>; layout?: DeckLayout; tags?: string[] }
-export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
+export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
 export const STORAGE_KEY = 'mtg-format-forge.library.v1';
 export const normalizeName = (name: string) => name.trim().toLocaleLowerCase('en-US');
 export const ruleCardName = (name: string) => normalizeName(name.split(' // ')[0]);
@@ -54,7 +54,7 @@ export function blankFormat(): Format {
   return { id: crypto.randomUUID(), name: '', description: '', minCards: 60, maxCards: null, minSideboard: 0, maxSideboard: 15, copyLimit: 4, basicLandExemption: true, banned: [], allowedSets: [], commanderRules: false, normalOnly: true };
 }
 export function createLibrary(): Library {
-  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 11 };
+  return { version: 1, formats: builtInFormats(), decks: [], defaultsVersion: 12 };
 }
 export const tournamentOnly = (format: Format) => format.banTournamentIllegal ?? (!format.whitelistOnly && !format.officialFormat && !!format.normalOnly);
 export function tournamentEligibility(card: CardEntry, format: Format): 'legal' | 'illegal' | 'unknown' {
@@ -287,10 +287,14 @@ export function parseCardNames(text: string): string[] {
   if (!names.length) throw new Error('No card names found. Paste names or a decklist.');
   return uniqueCardNames(names);
 }
-export type ExportStyle = 'arena' | 'plain' | 'mtgo' | 'extended';
+export type ExportStyle = 'arena' | 'plain' | 'mtgo' | 'extended' | 'moxfield';
 export function deckText(deck: Deck, style: ExportStyle = 'plain', printings = false): string {
   const line = (c: CardEntry) => `${c.quantity} ${c.name}${printings && c.info?.set && c.info.collectorNumber ? ` (${c.info.set.toUpperCase()}) ${c.info.collectorNumber}` : ''}`;
   const lines = (z: Zone) => deck.cards.filter(c => c.zone === z || (z === 'side' && c.zone === 'companion' && style !== 'extended')).map(line).join('\n');
+  if (style === 'moxfield') {
+    const sections: [string, string][] = [['Commander', lines('commander')], ['Deck', lines('main')], ['Sideboard', lines('side')]];
+    return sections.filter(([, cards]) => cards).map(([name, cards]) => `${name}\n${cards}`).join('\n\n') + '\n';
+  }
   if (style === 'mtgo') return [deck.cards.filter(c => c.zone === 'main' || c.zone === 'commander').map(line).join('\n'), deck.cards.filter(c => c.zone === 'side' || c.zone === 'companion').map(c => `SB: ${line(c)}`).join('\n')].filter(Boolean).join('\n') + '\n';
   const zones: Zone[] = style === 'extended' ? ['commander', 'companion', 'main', 'side', 'considering', 'conspiracy'] : ['commander', 'companion', 'main', 'side'];
   const hasRoles = deck.cards.some(c => c.zone === 'commander' || c.zone === 'companion');
@@ -469,13 +473,13 @@ export function parseLibrary(raw: string): Library {
     return { ...(d.tags !== undefined ? { tags: normalizeTags(d.tags as string[]) } : {}), id: d.id, name: d.name, formatId: d.formatId, notes: d.notes, updatedAt: d.updatedAt, cards,
       ...(d.views !== undefined ? { views } : {}), ...(d.layout !== undefined ? { layout } : {}) };
   });
-  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10 && value.defaultsVersion !== 11) return fail();
+  if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10 && value.defaultsVersion !== 11 && value.defaultsVersion !== 12) return fail();
   const preferences: Record<string, CardInfo> = {};
   if (value.preferredPrintings !== undefined) {
     if (!object(value.preferredPrintings)) return fail();
     for (const [key, rawInfo] of Object.entries(value.preferredPrintings)) { const printing = info(rawInfo); if (!name(key) || !printing?.scryfallId) return fail(); Object.defineProperty(preferences, normalizeName(key), { value: printing, enumerable: true, writable: true, configurable: true }); }
   }
-  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
+  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}) };
 }
 
 export interface ValuedCard { name: string; value: number }

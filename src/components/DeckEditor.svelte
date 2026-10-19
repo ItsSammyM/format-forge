@@ -25,8 +25,9 @@
   let cardDetails = $state<{ savePendingTags: () => boolean } | undefined>();
   let stats = $state(false), primerOpen = $state(false);
   let error = $state(''), lookupError = $state(''), resolving = $state(0), retry = $state(0);
-  let transfer = $state(false), importText = $state(untrack(() => deckText(deck, 'extended', true))), importMode = $state<'main' | 'side' | 'considering' | 'edit'>('edit');
-  let exportStyle = $state<ExportStyle>('plain'), printings = $state(false), copied = $state(false);
+  type DeckTextMode = 'edit' | 'add-deck' | 'export-plain' | 'export-moxfield' | 'export-arena' | 'export-mtgo' | 'export-extended';
+  let transfer = $state(false), importText = $state(''), textMode = $state<DeckTextMode>('export-plain');
+  let printings = $state(false), copied = $state(false);
   let preview = $state<{ name: string; info: CardInfo } | null>(null);
   let editingCardId = $state<string | null>(null);
   let compact = $state(false), hoveredZone = $state<Zone | null>(null);
@@ -44,6 +45,8 @@
   function toggleZone(zone: UISection) { layout({ hiddenZones: hidden.includes(zone) ? hidden.filter(z => z !== zone) : [...hidden, zone] }); }
   const boards = $derived(visibleZones(deck));
   const allTags = $derived([...new Set(deck.cards.flatMap(c => c.tags ?? []))].sort());
+  const isExportMode = $derived(textMode.startsWith('export-'));
+  const exportStyle = $derived((textMode === 'export-moxfield' ? 'moxfield' : textMode === 'export-arena' ? 'arena' : textMode === 'export-mtgo' ? 'mtgo' : textMode === 'export-extended' ? 'extended' : 'plain') as ExportStyle);
   const exported = $derived(deckText(deck, exportStyle, printings));
   const attempts = new Set<string>();
   const metadataController = new AbortController();
@@ -144,17 +147,18 @@
     try { commit(moveCard(deck, id, target, count)); error = ''; closeCard(); }
     catch (e) { error = e instanceof Error ? e.message : 'Could not move the card.'; }
   }
-  function changeImportMode(mode: typeof importMode) {
-    importMode = mode;
+  function changeTextMode(mode: DeckTextMode) {
+    textMode = mode;
     importText = mode === 'edit' ? deckText(deck, 'extended', true) : '';
-    error = '';
+    copied = false; error = '';
   }
-  function openTransfer() { transfer = true; importMode = 'edit'; importText = deckText(deck, 'extended', true); copied = false; error = ''; }
+  function openTransfer() { transfer = true; textMode = 'export-plain'; importText = ''; copied = false; error = ''; }
   function importList() {
     try {
-      let next = importMode === 'edit' ? replaceDeckText(deck, importText, preferredPrintings) : { ...deck, cards: [...deck.cards] };
-      if (importMode !== 'edit') for (const card of parseDeckText(importText, importMode)) next = addCard(next, card.name, card.quantity, card.zone, card.info ?? preferredPrintings[normalizeName(card.name)]);
-      commit(next); importText = deckText(next, 'extended', true); importMode = 'edit'; error = ''; transfer = false;
+      if (isExportMode) return;
+      let next = textMode === 'edit' ? replaceDeckText(deck, importText, preferredPrintings) : { ...deck, cards: [...deck.cards] };
+      if (textMode === 'add-deck') for (const card of parseDeckText(importText)) next = addCard(next, card.name, card.quantity, card.zone, card.info ?? preferredPrintings[normalizeName(card.name)]);
+      commit(next); importText = ''; textMode = 'export-plain'; error = ''; transfer = false;
     } catch (e) { error = e instanceof Error ? e.message : 'Could not import the decklist.'; }
   }
   async function readList(event: Event) {
@@ -175,26 +179,18 @@
 {#if transfer}
   <section class="transfer-panel panel deck-transfer">
     <div class="section-heading"><h2>Import / export / edit this deck</h2><button class="section-close" aria-label="Close deck import and export" onclick={() => transfer = false}>×</button></div>
-    <div class="deck-transfer-columns">
-      <div class="deck-transfer-column">
-        <div class="deck-transfer-toolbar">
-          <label class="sr-only" for="import-mode">Import mode</label>
-          <select id="import-mode" value={importMode} onchange={(e) => changeImportMode(e.currentTarget.value as typeof importMode)}><option value="main">Add to deck</option><option value="side">Add to sideboard</option><option value="considering">Add to considering</option><option value="edit">Edit</option></select>
-          <label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={readList} /></label>
-          <button class="primary transfer-submit" onclick={importList}>{importMode === 'edit' ? 'Apply edits' : 'Add cards'}</button>
-        </div>
-        <label class="sr-only" for="import-text">{importMode === 'edit' ? 'Edit deck as text' : 'Import decklist'}</label>
-        <textarea id="import-text" bind:value={importText} rows="5" placeholder={importMode === 'edit' ? 'Deck\n4 Lightning Bolt\n20 Mountain\n\nSideboard\n2 Abrade' : '4 Lightning Bolt\nSol Ring\n2 Abrade'}></textarea>
+    <div class="deck-transfer-column">
+      <div class="deck-transfer-toolbar">
+        <label class="sr-only" for="deck-text-mode">Deck text action</label>
+        <select id="deck-text-mode" value={textMode} onchange={(e) => changeTextMode(e.currentTarget.value as DeckTextMode)}>
+          <option value="edit">Edit</option><option value="add-deck">Add to Deck</option><option value="export-plain">Plaintext</option><option value="export-moxfield">Moxfield</option><option value="export-arena">Arena</option><option value="export-mtgo">MTGO</option><option value="export-extended">All Sections</option>
+        </select>
+        {#if !isExportMode}<label class="file-button secondary">Load .txt<input type="file" accept=".txt,text/plain" onchange={readList} /></label>{:else}<label class="checkbox-label"><input type="checkbox" bind:checked={printings} /> Printings</label>{/if}
+        {#if isExportMode}<div class="deck-transfer-export-actions"><button class="secondary" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button><button class="primary" onclick={() => download(exported, `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain')}>Download</button></div>{:else}<button class="primary transfer-submit" onclick={importList}>{textMode === 'edit' ? 'Apply edits' : 'Add cards'}</button>{/if}
       </div>
-      <div class="deck-transfer-column">
-        <div class="deck-transfer-toolbar">
-          <label class="sr-only" for="export-style">Export format</label>
-          <select id="export-style" bind:value={exportStyle} title={exportStyle === 'extended' ? 'Includes considering and conspiracies' : exportStyle === 'mtgo' ? 'Commanders join the deck; companions join the sideboard' : 'Export format'}><option value="plain">Plain text</option><option value="arena">Arena text</option><option value="mtgo">MTGO (SB:)</option><option value="extended">All sections</option></select>
-          <label class="checkbox-label"><input type="checkbox" bind:checked={printings} /> Printings</label>
-          <div class="deck-transfer-export-actions"><button class="secondary" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button><button class="primary" onclick={() => download(exported, `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain')}>Download</button></div>
-        </div>
-        <label class="sr-only" for="export-text">Exported decklist</label><textarea id="export-text" value={exported} readonly rows="5"></textarea>
-      </div>
+      <label class="sr-only" for="deck-text">{isExportMode ? 'Exported decklist' : textMode === 'edit' ? 'Edit deck as text' : 'Import decklist'}</label>
+      <textarea id="deck-text" value={isExportMode ? exported : importText} readonly={isExportMode} oninput={(e) => importText = e.currentTarget.value} rows="10" placeholder={textMode === 'edit' ? 'Deck\n4 Lightning Bolt\n20 Mountain\n\nSideboard\n2 Abrade' : 'Deck\n4 Lightning Bolt\n20 Mountain\n\nSideboard\n2 Abrade\n\nConsidering\n1 Opt'}></textarea>
+      {#if textMode === 'add-deck'}<p class="help">Cards are added to this deck. Use Sideboard and Considering headers to split sections.</p>{/if}
     </div>
   </section>
 {/if}
