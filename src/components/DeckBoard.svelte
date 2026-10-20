@@ -9,7 +9,7 @@
     deck: Deck; format: Format; zone: Zone; defaultView?: BoardView; cardSize?: number; alwaysShowCardNames?: boolean; highlighted?: boolean; height?: number;
     onheight?: (height: number) => void; onclose: () => void; onview: (view: BoardView) => void; onedit: (card: CardEntry) => void; onquantity: (card: CardEntry, delta: number) => void; onpreview: (card: CardEntry) => void;
     ondragstart: (event: DragEvent, card: CardEntry) => void; ondragend: () => void;
-    ondragover: (event: DragEvent, zone: Zone) => void; ondragleave: (event: DragEvent) => void; ondrop: (event: DragEvent, zone: Zone) => void;
+    ondragover: (event: DragEvent, zone: Zone) => void; ondragleave: (event: DragEvent) => void; ondrop: (event: DragEvent) => void;
     onpointerstart: (event: PointerEvent, card: CardEntry) => void; consumeDragClick: () => boolean;
   } = $props();
   let viewButton: HTMLButtonElement, menu: HTMLDivElement;

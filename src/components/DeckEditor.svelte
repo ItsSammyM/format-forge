@@ -117,7 +117,11 @@
     } catch (e) { error = e instanceof Error ? e.message : 'Could not move the card.'; }
     dragEnd();
   }
-  function nativeDrop(event: DragEvent, target: Zone) { if (dragged) { event.preventDefault(); drop(target); } }
+  function nativeDrop(event: DragEvent) {
+    // Read the destination from the receiving board to avoid losing a forwarded zone argument.
+    const target = (event.currentTarget as HTMLElement).dataset.zone;
+    if (dragged && ZONES.includes(target as Zone)) { event.preventDefault(); drop(target as Zone); }
+  }
   function pointerStart(event: PointerEvent, card: CardEntry) {
     if (event.pointerType === 'mouse') return;
     event.preventDefault(); (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
