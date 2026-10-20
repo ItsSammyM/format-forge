@@ -5,10 +5,10 @@
   import ValuedListEditor from './ValuedListEditor.svelte';
   import BanListEditor from './BanListEditor.svelte';
   import { uniqueCardNames, normalizeTags, RARITIES, OFFICIAL_FORMAT_NAMES, ruleCardName, validReleaseDate, normalizeFormatLimits } from '../lib/model';
-  import type { CardInfo, Format, OfficialFormat, Rarity } from '../lib/model';
+  import type { BoardView, CardInfo, Format, OfficialFormat, Rarity } from '../lib/model';
   import { loadSets } from '../lib/scryfall';
   import type { ScryfallSet } from '../lib/scryfall';
-  let { format, onchange, onback, readOnly = false }: { format: Format; readOnly?: boolean; onchange: (format?: Format) => void; onback: () => void } = $props();
+  let { format, preferredView, onchange, onback, readOnly = false }: { format: Format; preferredView?: BoardView; readOnly?: boolean; onchange: (format?: Format) => void; onback: () => void } = $props();
   const initialFormat = untrack(() => format);
   let draft = $state(untrack(() => ({ ...initialFormat, allowedSets: [...initialFormat.allowedSets], banned: [...initialFormat.banned], allowedCards: [...initialFormat.allowedCards ?? []], normalOnly: initialFormat.normalOnly ?? true, allowUnCards: initialFormat.allowUnCards ?? false, banTournamentIllegal: initialFormat.banTournamentIllegal ?? (!initialFormat.whitelistOnly && !initialFormat.officialFormat && (initialFormat.normalOnly ?? true)), bannedRarities: [...initialFormat.bannedRarities ?? []] as Rarity[], pointed: (initialFormat.pointed ?? []).map(c => ({ ...c })), restricted: (initialFormat.restricted ?? []).map(c => ({ ...c })) })));
   let draftTags = $state(untrack(() => (initialFormat.tags ?? []).join(', ')));
@@ -117,6 +117,6 @@
   </form>
 </section>
 
-{#if !readOnly}<div class="format-ban-search"><div class="format-search-values"><label>Restrict to<input disabled={readOnly} type="number" min="1" max="999" bind:value={restrictedLimit} /><span>copies</span></label><label>Assign<input disabled={readOnly} type="number" min="0" max="999" bind:value={pointValue} /><span>points</span></label></div><CardSearch mode="ban" format={searchFormat} {formatActions} onadd={(name) => draft.banned = uniqueCardNames([...draft.banned, name])} onpreview={(name, info) => { recordCardInfo(name, info); preview = { name, info }; }} /></div>{/if}
+{#if !readOnly}<div class="format-ban-search"><div class="format-search-values"><label>Restrict to<input disabled={readOnly} type="number" min="1" max="999" bind:value={restrictedLimit} /><span>copies</span></label><label>Assign<input disabled={readOnly} type="number" min="0" max="999" bind:value={pointValue} /><span>points</span></label></div><CardSearch mode="ban" format={searchFormat} cardSize={preferredView?.cardSize ?? 170} alwaysShowCardNames={preferredView?.alwaysShowCardNames ?? false} {formatActions} onadd={(name) => draft.banned = uniqueCardNames([...draft.banned, name])} onpreview={(name, info) => { recordCardInfo(name, info); preview = { name, info }; }} /></div>{/if}
 </div>
-{#if preview}<CardDetails card={preview} oninfo={(info) => recordCardInfo(preview!.name, info)} onclose={() => preview = null} />{/if}
+{#if preview}<CardDetails card={preview} cardSize={preferredView?.cardSize ?? 170} oninfo={(info) => recordCardInfo(preview!.name, info)} onclose={() => preview = null} />{/if}

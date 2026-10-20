@@ -8,8 +8,9 @@
   import LibraryCard from './components/LibraryCard.svelte';
   import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, deckText, parseDeckText, parseFormatText, normalizeName, validateDeck } from './lib/model';
   import { addDefaultFormats, isDefaultFormat } from './lib/default-formats';
-  import type { Deck, Format } from './lib/model';
+  import type { BoardView, Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
+  import { DEFAULT_VIEW } from './lib/deck-view';
 
   const THEME_KEY = 'format-forge.theme';
   function readTheme(): 'dark' | 'light' {
@@ -84,6 +85,7 @@
   });
 
   function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
+  function updateViewPreferences(patch: Partial<BoardView>) { library.preferredView = { ...(library.preferredView ?? DEFAULT_VIEW), ...patch }; }
   function newFormat() {
     editing = blankFormat();
   }
@@ -170,7 +172,7 @@
 <div class="app-shell" data-theme={theme}>
   <header class="app-header">
     <nav aria-label="Main navigation"><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button></nav>
-    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
+    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Display settings</h2><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label></div><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
   </header>
   <main class:builder-main={!!selected}>
     <ScryfallStatus />
@@ -191,7 +193,7 @@
       {:else}{#each deckGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="deck-grid">{#each group.decks as deck (deck.id)}{@const format = library.formats.find(f => f.id === deck.formatId)!}{@const ruleIssues = validateDeck(deck, format)}{@const same = library.decks.filter(item => normalizeName(item.name) === normalizeName(deck.name) && item.formatId === deck.formatId)}<LibraryCard cardClass="deck-card" actionsClass="deck-card-footer" onopen={() => selectedId = deck.id}>{#snippet children()}<h2 class="deck-card-title"><span class="deck-title-text">{deck.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === deck.id) + 1}</small>{/if}</span>{#if ruleIssues.length}<span class="deck-rule-warning" role="img" title={ruleIssues.join('\n')} aria-label={`${ruleIssues.length} saved rule issues`}><svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 22 21H2Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v5m0 3v1" stroke="currentColor" stroke-width="2" /></svg><span>{ruleIssues.length}</span></span>{/if}</h2>{#if deck.tags?.length}<span class="library-tag-list">{#each deck.tags as tag}<span class="library-tag">{tag}</span>{/each}</span>{/if}<span>{format.name}</span><span>{deckSize(deck)} deck · {sideboardSize(deck, format)} sideboard</span>{/snippet}{#snippet actions()}<button class="quiet" onclick={() => duplicate(deck)} aria-label={`Duplicate ${deck.name}`}>Duplicate</button><button class="quiet" onclick={() => exportDeck(deck)} aria-label={`Export ${deck.name}`}>Export</button><button class="quiet danger" onclick={() => deleteDeck(deck)} aria-label={`Delete ${deck.name}`}>Delete</button>{/snippet}</LibraryCard>{/each}</div>{/each}{/if}
     {:else}
       <div class="page-heading"><h1>Formats</h1><div class="format-page-actions"><label class="file-button secondary">Import format<input type="file" accept=".json,application/json" onchange={importFormat} /></label><button class="primary" onclick={newFormat}>+ New format</button></div></div>
-      {#if editing}{#key editing.id}<FormatEditor readOnly={isDefaultFormat(editing.id)} format={editing} onchange={autosaveFormat} onback={() => editing = null} />{/key}
+      {#if editing}{#key editing.id}<FormatEditor readOnly={isDefaultFormat(editing.id)} format={editing} preferredView={library.preferredView} onchange={autosaveFormat} onback={() => editing = null} />{/key}
       {:else}<LibraryToolbar searchId="format-search" searchPlaceholder="Name, description, tag" bind:search={formatSearch} tags={formatTags} bind:tagFilter={formatTagFilter} bind:sort={formatSort} sortOptions={[{ value: 'updated', label: 'Recently edited' }, { value: 'name', label: 'Name' }, { value: 'decks', label: 'Deck count' }, { value: 'tag', label: 'Tag' }, { value: 'default', label: 'Default first' }]} bind:direction={formatDirection} bind:group={formatGroup} groupOptions={[{ value: 'none', label: 'No grouping' }, { value: 'tag', label: 'By tag' }, { value: 'default', label: 'Default / custom' }]} />
         {#if library.formats.length === 0}<section class="empty-state"><p>No formats yet.</p></section>
         {:else if !visibleFormats.length}<section class="empty-state"><p>No matching formats.</p><button class="secondary" onclick={() => { formatSearch = ''; formatTagFilter = ''; }}>Clear filters</button></section>

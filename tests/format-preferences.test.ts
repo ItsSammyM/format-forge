@@ -21,13 +21,14 @@ test('new deck defaults group by type, sort by mana value and show mana costs in
 
 test('preferred views, zoom and Modern legality survive backups but preferences stay out of deck transfers', () => {
   const library = createLibrary();
-  library.preferredView = { sort: 'price', group: 'tags', direction: 'desc', display: 'cards', details: ['manaCost', 'price'], cardSize: 220, showPrintings: true };
+  library.preferredView = { sort: 'price', group: 'tags', direction: 'desc', display: 'cards', details: ['manaCost', 'price'], cardSize: 220, showPrintings: true, alwaysShowCardNames: true };
   library.decks = [addCard(deck(), 'Example', 1, 'main', info(15))];
   const restored = parseBackupText(backupText(library));
   assert.deepEqual(restored.preferredView, library.preferredView); assert.equal(restored.decks[0].cards[0].info!.modernLegality, 'legal');
   const raw = transferText(library, 'decks', ['prices'], []); assert.ok(!raw.includes('preferredView')); assert.ok(!raw.includes('cardSize'));
   const transfer = JSON.parse(raw); transfer.preferredView = library.preferredView; assert.throws(() => parseTransfer(JSON.stringify(transfer)));
   for (const size of [0, 99, 321, 150.5]) { library.preferredView.cardSize = size; assert.throws(() => parseLibrary(JSON.stringify(library))); }
+  library.preferredView = { ...DEFAULT_VIEW, alwaysShowCardNames: 'yes' as unknown as boolean }; assert.throws(() => parseLibrary(JSON.stringify(library)));
 });
 
 test('legacy list views migrate to compact without resetting the selected sort and group', () => {

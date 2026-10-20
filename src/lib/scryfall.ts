@@ -4,7 +4,7 @@ import type { CardEntry, CardInfo, Format, Rarity } from './model.ts';
 
 export interface ScryfallCard {
   id: string; oracle_id?: string; name: string; set: string; set_name?: string; released_at?: string; collector_number: string;
-  type_line: string; oracle_text?: string; mana_cost?: string; color_identity: string[];
+  type_line: string; oracle_text?: string; mana_cost?: string; color_identity: string[]; produced_mana?: string[];
   legalities?: Record<string, string>;
   border_color?: string; security_stamp?: string | null; layout?: string;
   artist?: string; power?: string; toughness?: string; edhrec_rank?: number; cmc?: number; colors?: string[]; rarity?: string; prices?: { usd?: string | null; usd_foil?: string | null };

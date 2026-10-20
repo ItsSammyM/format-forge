@@ -4,8 +4,8 @@
   import { ZONE_NAMES, ZONES, normalizeTags } from '../lib/model';
   import { cardInfo, latestOracle, loadPrintings } from '../lib/scryfall';
   import type { ScryfallCard } from '../lib/scryfall';
-  let { card, preferred, onclose, onquantity, onmove, ontags, onremove, onprinting, ondefault, oninfo }: {
-    card: CardEntry | { name: string; info?: CardInfo }; preferred?: CardInfo; onclose: () => void;
+  let { card, preferred, cardSize = 170, onclose, onquantity, onmove, ontags, onremove, onprinting, ondefault, oninfo }: {
+    card: CardEntry | { name: string; info?: CardInfo }; preferred?: CardInfo; cardSize?: number; onclose: () => void;
     onquantity?: (delta: number) => void; onmove?: (zone: Zone, quantity: number) => void; ontags?: (id: string, tags: string[]) => void;
     onremove?: () => void; onprinting?: (info: CardInfo) => void; ondefault?: (info: CardInfo | undefined) => void; oninfo?: (info: CardInfo) => void;
   } = $props();
@@ -22,6 +22,9 @@
   let editionInfo = $state<CardInfo | null>(null), requestVersion = 0;
   const entry = $derived('id' in card ? card : undefined);
   const printing = $derived(editionInfo ?? card.info ?? oracle);
+  const scryfallUrl = $derived(printing?.set && printing.collectorNumber
+    ? `https://scryfall.com/card/${encodeURIComponent(printing.set)}/${encodeURIComponent(printing.collectorNumber)}`
+    : `https://scryfall.com/search?q=${encodeURIComponent(card.name)}`);
   const cardKey = $derived(`${'id' in card ? card.id : 'search'}:${card.name}`);
   $effect(() => {
     cardKey;
@@ -52,11 +55,11 @@
   }
 </script>
 <svelte:window onpointerdown={outside} onkeydown={(e) => { if (e.key === 'Escape') close(); }} />
-<div bind:this={root} tabindex="-1" class="card-details-panel" role="dialog" aria-modal="false" aria-label={card.name}>
-  <div class="section-heading"><h2>{card.name}</h2><button class="icon-button" aria-label="Close card details" onclick={close}>×</button></div>
+<div bind:this={root} tabindex="-1" class="card-details-panel" role="dialog" aria-modal="false" aria-label={card.name} style:--card-image-size={`${cardSize}px`}>
+  <div class="section-heading"><h2>Card details</h2><button class="icon-button" aria-label="Close card details" onclick={close}>×</button></div>
   <div class="card-details-layout">
     <div class="card-details-image">{#if printing?.image}<img src={flipped ? printing.backImage : printing.image} alt={`${card.name}, ${printing.set.toUpperCase()} printing`} />{:else}<p class="muted">Printing image unavailable</p>{/if}{#if printing?.backImage}<button class="secondary" onclick={() => flipped = !flipped}>Flip printing</button>{/if}<p class="muted">{printing?.setName ?? printing?.set.toUpperCase() ?? ''} · {printing?.collectorNumber ?? ''} · {printing?.rarity ?? 'Rarity unavailable'}</p></div>
-    <div class="card-details-rules"><p class="printing-metadata">{printing?.setName ?? printing?.set.toUpperCase() ?? 'Set unavailable'} · {printing?.rarity ?? 'Rarity unavailable'}</p><h3>Updated Oracle text</h3>{#if oracle}<p>{oracle.manaCost}</p><p>{oracle.typeLine}</p><p class="oracle-text">{oracle.oracleText}</p>{:else if loading}<p class="muted" role="status">Loading current Oracle text…</p>{:else}<p class="muted">Current Oracle text could not be verified.</p>{#if card.info}<p class="oracle-text">{card.info.oracleText}</p><small>Saved Oracle text, awaiting refresh.</small>{/if}{/if}  <details class="printing-picker"><summary>{ondefault ? 'Printing and default edition' : 'Printings'}</summary><button class="secondary" disabled={loading} onclick={fetchEditions}>Load all printings</button>{#if editions.length}<label>Edition<select value={printing?.scryfallId} onchange={(e) => choosePrinting(e.currentTarget.value)}>{#each editions as edition}<option value={edition.id}>{edition.set_name ?? edition.set.toUpperCase()} · {edition.collector_number} · {edition.released_at ?? ''}</option>{/each}</select></label>{/if}{#if ondefault}<div class="transfer-actions"><button class="secondary" disabled={!printing?.scryfallId} onclick={() => { if (printing) ondefault?.(printing); }}>Use this printing in future decks</button>{#if preferred}<button class="secondary" onclick={() => ondefault?.(undefined)}>Clear default printing</button>{/if}</div>{#if preferred}<p class="help">Default: {preferred.set.toUpperCase()} {preferred.collectorNumber}</p>{/if}{/if}</details></div>
+    <div class="card-details-rules"><p class="printing-metadata">{printing?.setName ?? printing?.set.toUpperCase() ?? 'Set unavailable'} · {printing?.rarity ?? 'Rarity unavailable'}</p><h3><a href={scryfallUrl} target="_blank" rel="noreferrer">{card.name}</a></h3>{#if oracle}<p>{oracle.manaCost}</p><p>{oracle.typeLine}</p><p class="oracle-text">{oracle.oracleText}</p>{:else if loading}<p class="muted" role="status">Loading current Oracle text…</p>{:else}<p class="muted">Current Oracle text could not be verified.</p>{#if card.info}<p class="oracle-text">{card.info.oracleText}</p><small>Saved Oracle text, awaiting refresh.</small>{/if}{/if}  <details class="printing-picker"><summary>{ondefault ? 'Printing and default edition' : 'Printings'}</summary><button class="secondary" disabled={loading} onclick={fetchEditions}>Load all printings</button>{#if editions.length}<label>Edition<select value={printing?.scryfallId} onchange={(e) => choosePrinting(e.currentTarget.value)}>{#each editions as edition}<option value={edition.id}>{edition.set_name ?? edition.set.toUpperCase()} · {edition.collector_number} · {edition.released_at ?? ''}</option>{/each}</select></label>{/if}{#if ondefault}<div class="transfer-actions"><button class="secondary" disabled={!printing?.scryfallId} onclick={() => { if (printing) ondefault?.(printing); }}>Use this printing in future decks</button>{#if preferred}<button class="secondary" onclick={() => ondefault?.(undefined)}>Clear default printing</button>{/if}</div>{#if preferred}<p class="help">Default: {preferred.set.toUpperCase()} {preferred.collectorNumber}</p>{/if}{/if}</details></div>
   </div>
   {#if entry}
     <div class="card-detail-controls"><div class="quantity-field"><span>Quantity</span><div class="quantity-control"><button class="icon-button" aria-label="Remove one copy" onclick={() => onquantity?.(-1)}>−</button><span>{entry.quantity}</span><button class="icon-button" disabled={entry.quantity >= 999} aria-label="Add one copy" onclick={() => onquantity?.(1)}>+</button></div></div>

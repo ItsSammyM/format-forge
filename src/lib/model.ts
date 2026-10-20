@@ -1,8 +1,8 @@
 import { builtInFormats } from './default-formats.ts';
 export type Zone = 'main' | 'side' | 'considering' | 'commander' | 'companion' | 'conspiracy';
 export const ZONES: Zone[] = ['main', 'side', 'considering', 'commander', 'companion', 'conspiracy'];
-export type UISection = Zone | 'search';
-export const UI_SECTIONS: UISection[] = [...ZONES, 'search'];
+export type UISection = Zone | 'search' | 'lands';
+export const UI_SECTIONS: UISection[] = [...ZONES, 'search', 'lands'];
 export const ZONE_NAMES: Record<Zone, string> = { main: 'Deck', side: 'Sideboard', considering: 'Considering', commander: 'Commander', companion: 'Companion', conspiracy: 'Conspiracy' };
 export const RARITIES = ['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'] as const;
 export type Rarity = typeof RARITIES[number];
@@ -37,8 +37,8 @@ export const CARD_SORTS = ['name', 'manaValue', 'colors', 'colorIdentity', 'pric
 export type CardSort = typeof CARD_SORTS[number];
 export const CARD_DETAILS = ['manaCost', 'manaValue', 'colorIdentity', 'price', 'points', 'type', 'rarity', 'tags'] as const;
 export type CardDetail = typeof CARD_DETAILS[number];
-export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction: 'asc' | 'desc'; details?: (CardDetail | CardSort)[]; showPrintings?: boolean; display?: 'list' | 'compact' | 'cards'; cardSize?: number }
-export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; special?: Partial<Record<Zone, number>> }
+export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction: 'asc' | 'desc'; details?: (CardDetail | CardSort)[]; showPrintings?: boolean; display?: 'list' | 'compact' | 'cards'; cardSize?: number; alwaysShowCardNames?: boolean }
+export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; landsOpen?: boolean; special?: Partial<Record<Zone, number>> }
 export interface CardEntry { id: string; name: string; quantity: number; zone: Zone; info?: CardInfo; tags?: string[] }
 export interface Deck { id: string; name: string; formatId: string; notes: string; cards: CardEntry[]; updatedAt: string; views?: Partial<Record<Zone, BoardView>>; layout?: DeckLayout; tags?: string[] }
 export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView }
@@ -421,8 +421,9 @@ export function parseLibrary(raw: string): Library {
     if (view.details !== undefined && (!Array.isArray(view.details) || !view.details.every(k => CARD_SORTS.includes(k as CardSort) || k === 'manaCost'))) return fail();
     if (view.display !== undefined && !['list', 'compact', 'cards'].includes(view.display as string)) return fail();
     if (view.showPrintings !== undefined && typeof view.showPrintings !== 'boolean') return fail();
+    if (view.alwaysShowCardNames !== undefined && typeof view.alwaysShowCardNames !== 'boolean') return fail();
     if (view.cardSize !== undefined && (typeof view.cardSize !== 'number' || !Number.isInteger(view.cardSize) || view.cardSize < 100 || view.cardSize > 320)) return fail();
-    return { ...(view.cardSize !== undefined ? { cardSize: view.cardSize as number } : {}), ...(view.display !== undefined ? { display: view.display === 'list' ? 'compact' as const : view.display as BoardView['display'] } : {}), ...(view.details !== undefined ? { details: [...new Set((view.details as (CardDetail | CardSort)[]).map(k => k === 'colors' ? 'manaCost' : k))] } : {}), ...(view.showPrintings !== undefined ? { showPrintings: view.showPrintings as boolean } : {}), sort: view.sort as CardSort, group: view.group as BoardView['group'], direction: view.direction as BoardView['direction'] };
+    return { ...(view.cardSize !== undefined ? { cardSize: view.cardSize as number } : {}), ...(view.alwaysShowCardNames !== undefined ? { alwaysShowCardNames: view.alwaysShowCardNames as boolean } : {}), ...(view.display !== undefined ? { display: view.display === 'list' ? 'compact' as const : view.display as BoardView['display'] } : {}), ...(view.details !== undefined ? { details: [...new Set((view.details as (CardDetail | CardSort)[]).map(k => k === 'colors' ? 'manaCost' : k))] } : {}), ...(view.showPrintings !== undefined ? { showPrintings: view.showPrintings as boolean } : {}), sort: view.sort as CardSort, group: view.group as BoardView['group'], direction: view.direction as BoardView['direction'] };
   }
   const ids = new Set<string>();
   const decks: Deck[] = value.decks.map(d => {
@@ -460,6 +461,7 @@ export function parseLibrary(raw: string): Library {
       }
       if (d.layout.zoneSplits !== undefined) { if (!object(d.layout.zoneSplits)) return fail(); layout.zoneSplits = {}; for (const [zone, ratio] of Object.entries(d.layout.zoneSplits)) { if (!ZONES.includes(zone as Zone) || typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 15 || ratio > 85) return fail(); layout.zoneSplits[zone as Zone] = ratio; } }
       if (d.layout.hiddenZones !== undefined) { if (!Array.isArray(d.layout.hiddenZones) || !d.layout.hiddenZones.every(zone => UI_SECTIONS.includes(zone as UISection))) return fail(); layout.hiddenZones = [...new Set(d.layout.hiddenZones)] as UISection[]; }
+      if (d.layout.landsOpen !== undefined) { if (typeof d.layout.landsOpen !== 'boolean') return fail(); layout.landsOpen = d.layout.landsOpen; }
       if (d.layout.special !== undefined) {
         if (!object(d.layout.special)) return fail();
         layout.special = {};
