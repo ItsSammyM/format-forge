@@ -1,12 +1,13 @@
-import { createLibrary, parseLibrary, STORAGE_KEY } from './model';
-import { addDefaultFormats } from './default-formats';
+import { createLibrary, STORAGE_KEY } from './model';
+import { compactLibraryData } from './library-data';
+import { parseLibraryWithDefaults } from './library-restore';
 import type { Library } from './model';
 
 export function loadLibrary(): { library: Library; error: string; writable: boolean; recovery: string } {
   let raw = '';
   try {
     raw = localStorage.getItem(STORAGE_KEY) ?? '';
-    return { library: raw ? addDefaultFormats(parseLibrary(raw)) : createLibrary(), error: '', writable: true, recovery: '' };
+    return { library: raw ? parseLibraryWithDefaults(raw) : createLibrary(), error: '', writable: true, recovery: '' };
   } catch {
     return {
       library: createLibrary(), writable: false, recovery: raw,
@@ -17,7 +18,7 @@ export function loadLibrary(): { library: Library; error: string; writable: bool
 }
 
 export function saveLibrary(library: Library): string {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(library)); return ''; }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(compactLibraryData(library, true))); return ''; }
   catch { return 'Changes could not be saved to this browser. Export a backup before closing this tab.'; }
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ScryfallStatus from './components/ScryfallStatus.svelte';
   import LibraryTransfer from './components/LibraryTransfer.svelte';
   import { parseBackupText } from './lib/transfer';
@@ -11,6 +12,8 @@
   import type { BoardView, Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
   import { DEFAULT_VIEW } from './lib/deck-view';
+  import { authConfigured, loadAccountLibrary, loginWithDiscord, logout, saveAccountLibrary, startAuth } from './lib/auth';
+  import type { AuthSession } from './lib/auth';
 
   const THEME_KEY = 'format-forge.theme';
   function readTheme(): 'dark' | 'light' {
@@ -22,6 +25,12 @@
   let storageError = $state(loaded.error);
   let recovery = $state(loaded.recovery);
   let notice = $state('');
+  let authSession = $state<AuthSession | null>(null);
+  let authStatus = $state<'checking' | 'local' | 'cloud' | 'error'>('checking');
+  let accountSaveState = $state<'saved' | 'saving'>('saved');
+  let authError = $state('');
+  let cloudSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let cloudSaveQueue: Promise<void> = Promise.resolve();
   let theme = $state<'dark' | 'light'>(readTheme());
   let transferOpen = $state(false);
   let page = $state<'home' | 'decks' | 'formats'>('home');
@@ -77,12 +86,65 @@
 
   $effect(() => {
     const snapshot = JSON.stringify(library);
-    if (writable) storageError = saveLibrary(JSON.parse(snapshot));
+    if ((authStatus === 'local' || authStatus === 'error') && writable) storageError = saveLibrary(JSON.parse(snapshot));
+    if (authStatus === 'cloud' && authSession) {
+      if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+      authError = '';
+      accountSaveState = 'saving';
+      cloudSaveTimer = setTimeout(() => {
+        const currentSession = authSession;
+        if (!currentSession) return;
+        cloudSaveQueue = cloudSaveQueue.catch(() => undefined).then(() => saveAccountLibrary(currentSession, JSON.parse(snapshot)))
+          .then(() => { if (authSession === currentSession) { authError = ''; accountSaveState = 'saved'; } })
+          .catch((error: unknown) => { if (authSession === currentSession) authError = error instanceof Error ? error.message : 'Could not save your account library.'; });
+      }, 700);
+    }
   });
   $effect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* The current theme still applies for this tab. */ }
   });
+
+  onMount(() => {
+    let active = true;
+    (async () => {
+      try {
+        const auth = await startAuth();
+        if (!active) return;
+        if (!auth.session) { authStatus = 'local'; return; }
+        authSession = auth.session;
+        const accountLibrary = await loadAccountLibrary(auth.session);
+        if (!active) return;
+        if (accountLibrary) {
+          library = accountLibrary;
+        } else {
+          const firstAccountLibrary = addDefaultFormats(JSON.parse(JSON.stringify(library)));
+          await saveAccountLibrary(auth.session, firstAccountLibrary);
+          if (!active) return;
+          library = firstAccountLibrary;
+          notice = 'Your browser library was copied to Cloudflare D1. The browser copy remains available after signing out.';
+        }
+        writable = true;
+        authStatus = 'cloud';
+      } catch (error) {
+        if (!active) return;
+        authError = error instanceof Error ? error.message : 'Could not connect to your account library.';
+        authStatus = 'error';
+      }
+    })();
+    return () => { active = false; if (cloudSaveTimer) clearTimeout(cloudSaveTimer); };
+  });
+
+  async function signIn() {
+    authError = '';
+    try { await loginWithDiscord(); }
+    catch (error) { authError = error instanceof Error ? error.message : 'Could not start Discord sign-in.'; }
+  }
+
+  async function signOut() {
+    try { await logout(); }
+    catch (error) { authError = error instanceof Error ? error.message : 'Could not sign out.'; }
+  }
 
   function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
   function updateViewPreferences(patch: Partial<BoardView>) { library.preferredView = { ...(library.preferredView ?? DEFAULT_VIEW), ...patch }; }
@@ -160,7 +222,7 @@
   function restoreBackup(raw: string, filename: string): boolean {
     const imported = parseBackupText(raw);
     if (!confirm(`Replace this library with ${imported.decks.length} decks and ${imported.formats.length} formats from "${filename}"? Export a full backup first if you want to keep your current library.`)) return false;
-    library = addDefaultFormats(imported); writable = true; recovery = ''; selectedId = null; editing = null; creating = false; filter = ''; tagFilter = ''; search = ''; notice = 'Full backup restored.';
+    library = imported; writable = true; recovery = ''; selectedId = null; editing = null; creating = false; filter = ''; tagFilter = ''; search = ''; notice = 'Full backup restored.';
     return true;
   }
   function resetStorage() {
@@ -172,17 +234,19 @@
 <div class="app-shell" data-theme={theme}>
   <header class="app-header">
     <nav aria-label="Main navigation"><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button></nav>
-    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError}>{storageError ? 'Storage error' : 'Saved locally'}</span><button class="secondary" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Display settings</h2><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label></div><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
+    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError || !!authError}>{authStatus === 'checking' ? 'Checking account…' : authStatus === 'cloud' ? (authError ? 'Sync error' : accountSaveState === 'saving' ? 'Saving…' : 'Saved to account') : authStatus === 'error' ? 'Account error' : storageError ? 'Storage error' : 'Saved locally'}</span>{#if authSession}<span class="account-label" title={authSession.user.email ?? authSession.user.name ?? 'Signed in'}>{authSession.user.email ?? authSession.user.name ?? 'Signed in'}</span><button class="secondary" onclick={signOut}>Sign out</button>{/if}<button class="secondary" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Display settings</h2><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label></div><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
   </header>
   <main class:builder-main={!!selected}>
+    {#if authStatus === 'checking'}<section class="auth-loading" aria-live="polite"><span class="loading-dot"></span>Connecting to your library…</section>{:else}
     <ScryfallStatus />
     {#if storageError}<div class="alert" role="alert"><p>{storageError}</p>{#if recovery}<div class="alert-actions"><button class="secondary" onclick={() => download(recovery, 'format-forge-recovery.json')}>Download stored data</button><button class="quiet" onclick={resetStorage}>Start fresh</button></div>{/if}</div>{/if}
+    {#if authError}<div class="alert account-alert" role="alert"><p>{authError}</p>{#if authSession}<div class="alert-actions"><button class="secondary" onclick={signOut}>Sign out and use this browser</button></div>{/if}</div>{/if}
     {#if notice}<div class="notice" role="status">{notice}<button class="icon-button" onclick={() => notice = ''} aria-label="Dismiss message">×</button></div>{/if}
     {#if selected}
       <h1 class="sr-only">{selected.name}</h1>
       {#key selected.id}<DeckEditor deck={selected} formats={library.formats} preferredPrintings={library.preferredPrintings ?? {}} preferredView={library.preferredView} onpreferredView={(view) => library.preferredView = view} onpreferred={(name, info) => { const preferences = { ...library.preferredPrintings }; if (info) preferences[normalizeName(name)] = info; else delete preferences[normalizeName(name)]; library.preferredPrintings = preferences; }} onchange={updateDeck} onback={() => selectedId = null} onduplicate={() => { if (selected) duplicate(selected); }} ondelete={() => { if (selected) deleteDeck(selected); }} />{/key}
     {:else if page === 'home'}
-      <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Build Magic decks for the formats you want to play.</p><p>Custom card pools, bans, restrictions, points and price limits. Start with a default format or make your own.</p><div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div><p class="help">Decks and preferences save on this device. Use Library import / export to move your collection or keep a backup.</p></section>
+      <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Decks builder with a card search for a custom format, and format builder.</p>{#if authSession}<div class="account-welcome"><strong>Signed in as {authSession.user.email ?? authSession.user.name ?? 'your Discord account'}</strong><span>Your decks, formats and preferences sync to your account.</span></div>{:else}<div class="account-welcome"><strong>Save your library to your Discord account</strong><span>Sign-in is optional. Without an account, your library stays in this browser.</span>{#if authConfigured}<button class="primary" onclick={signIn}>Continue with Discord</button>{:else}<small>Discord sign-in becomes available after Better Auth and Cloudflare D1 are configured. See the setup steps in README.</small>{/if}</div>{/if}<div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div><p class="help">{authStatus === 'cloud' ? 'Your signed-in library is stored in Cloudflare D1. The local browser library stays separate.' : 'Decks and preferences save on this device. Use Library import / export to move your collection or keep a backup.'}</p></section>
     {:else if page === 'decks'}
       <div class="page-heading"><h1>Decks</h1><div class="page-actions"><button class="secondary" onclick={startDeckImport}>Import deck</button><button class="primary" onclick={startDeck} disabled={!library.formats.length}>+ New deck</button></div></div>
       {#if creating}<section class="panel create-deck"><form onsubmit={createDeck}><label>Deck name<input bind:value={deckName} required maxlength="200" /></label><label>Format<select bind:value={newFormatId}>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><button class="primary" type="submit">Create deck</button><button class="quiet" type="button" onclick={() => creating = false}>Cancel</button></form></section>{/if}
@@ -197,7 +261,8 @@
       {:else}<LibraryToolbar searchId="format-search" searchPlaceholder="Name, description, tag" bind:search={formatSearch} tags={formatTags} bind:tagFilter={formatTagFilter} bind:sort={formatSort} sortOptions={[{ value: 'updated', label: 'Recently edited' }, { value: 'name', label: 'Name' }, { value: 'decks', label: 'Deck count' }, { value: 'tag', label: 'Tag' }, { value: 'default', label: 'Default first' }]} bind:direction={formatDirection} bind:group={formatGroup} groupOptions={[{ value: 'none', label: 'No grouping' }, { value: 'tag', label: 'By tag' }, { value: 'default', label: 'Default / custom' }]} />
         {#if library.formats.length === 0}<section class="empty-state"><p>No formats yet.</p></section>
         {:else if !visibleFormats.length}<section class="empty-state"><p>No matching formats.</p><button class="secondary" onclick={() => { formatSearch = ''; formatTagFilter = ''; }}>Clear filters</button></section>
-        {:else}{#each formatGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="format-grid">{#each group.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}{@const same = library.formats.filter(item => normalizeName(item.name) === normalizeName(format.name))}{@const visibleTags = (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default')}<LibraryCard cardClass="panel format-card" actionsClass="format-card-actions" onopen={() => editing = format}>{#snippet children()}<div class="section-heading"><h2>{format.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === format.id) + 1}</small>{/if}{#if isDefaultFormat(format.id)}<small class="library-tag default-format-badge">Default</small>{/if}</h2>{#if used > 0}<span class="format-deck-count">{used} {used === 1 ? 'deck' : 'decks'}</span>{/if}</div>{#if format.description}<p class="format-description">{format.description}</p>{/if}{#if visibleTags.length}<div class="format-tags">{#each visibleTags as tag}<span class="library-tag">{tag}</span>{/each}</div>{/if}{/snippet}{#snippet actions()}<button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button><button class="quiet" onclick={() => exportFormat(format)}>Export</button><button class="quiet danger" disabled={isDefaultFormat(format.id) || used > 0} title={isDefaultFormat(format.id) ? 'Default formats cannot be deleted' : used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button>{/snippet}</LibraryCard>{/each}</div>{/each}{/if}{/if}
+        {:else}{#each formatGroups as group (group.name)}{#if group.name}<h2 class="format-group-heading">{group.name}</h2>{/if}<div class="format-grid">{#each group.formats as format (format.id)}{@const used = library.decks.filter(d => d.formatId === format.id).length}{@const same = library.formats.filter(item => normalizeName(item.name) === normalizeName(format.name))}{@const visibleTags = (format.tags ?? []).filter(tag => tag.toLocaleLowerCase() !== 'default')}<LibraryCard cardClass="panel format-card" actionsClass="format-card-actions" onopen={() => editing = format}>{#snippet children()}<div class="section-heading"><h2>{format.name}{#if same.length > 1}<small class="duplicate-number">#{same.findIndex(item => item.id === format.id) + 1}</small>{/if}{#if isDefaultFormat(format.id)}<small class="library-tag default-format-badge">Default</small>{/if}</h2>{#if used > 0}<span class="format-deck-count">{used} {used === 1 ? 'deck' : 'decks'}</span>{/if}</div>{#if format.description}<p class="format-description">{format.description}</p>{/if}{#if visibleTags.length}<div class="format-tags">{#each visibleTags as tag}<span class="library-tag">{tag}</span>{/each}</div>{/if}{/snippet}{#snippet actions()}<button class="quiet" onclick={() => duplicateFormat(format)}>Duplicate</button>{#if !isDefaultFormat(format.id)}<button class="quiet" onclick={() => exportFormat(format)}>Export</button>{/if}<button class="quiet danger" disabled={isDefaultFormat(format.id) || used > 0} title={isDefaultFormat(format.id) ? 'Default formats cannot be deleted' : used > 0 ? 'Move or delete linked decks first' : 'Delete this format'} onclick={() => deleteFormat(format)}>Delete</button>{/snippet}</LibraryCard>{/each}</div>{/each}{/if}{/if}
+    {/if}
     {/if}
   </main>
 </div>

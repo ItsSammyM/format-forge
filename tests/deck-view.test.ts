@@ -57,7 +57,7 @@ test('backups preserve tags, views, layout ratios, and expanded metadata', () =>
 });
 
 test('standalone formats export and import their complete rules', () => {
-  const format = defaultFormats()[0];
+  const format = { ...defaultFormats()[0], id: 'custom-snapshot' };
   assert.deepEqual(parseFormatText(formatText(format)), [format]);
   const library = createLibrary(); library.decks = [deck()];
   assert.throws(() => parseFormatText(JSON.stringify(library)), /standalone/);

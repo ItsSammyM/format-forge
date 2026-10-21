@@ -535,6 +535,14 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 .selection-actions { display:flex; gap:5px; margin-bottom:7px; }.selection-actions button { min-height:26px; padding:3px 7px; }
 .import-format-mappings { display:grid; gap:8px; margin:10px 0; }.import-format-mappings h3 { margin:0; font-size:1rem; }
 .library-transfer-dialog > p { margin:10px 0; }
+html[data-theme="dark"] dialog.library-transfer-dialog { color-scheme:dark; color:#e4ebe4; background:#1b251f; border-color:#35443a; }
+html[data-theme="dark"] dialog.library-transfer-dialog::backdrop { background:#050907bb; }
+html[data-theme="dark"] .library-transfer-dialog input,
+html[data-theme="dark"] .library-transfer-dialog select { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
+html[data-theme="dark"] .library-transfer-dialog fieldset { background:#18221c; border-color:#35443a; }
+html[data-theme="dark"] .library-transfer-dialog .secondary { color:#d8e8d9; background:#222e26; border-color:#46574a; }
+html[data-theme="dark"] .library-transfer-dialog .secondary:hover,
+html[data-theme="dark"] .library-transfer-dialog .quiet:hover { background:#2d3b31; }
 @media(max-width:600px) { .library-transfer-button { min-height:29px; padding:5px 7px; font-size:.8rem; }.header-actions { gap:7px; }.library-transfer-dialog { padding:12px; } }
 
 .rule-card-row > .rule-card-name { flex:1; min-width:0; border:0; background:transparent; padding:3px 0; color:var(--green); text-align:left; font:inherit; overflow-wrap:anywhere; white-space:normal; }
@@ -550,6 +558,16 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 .landing-page h1 { font-size:clamp(30px,5vw,46px); margin-bottom:8px; color:var(--green); }
 .landing-intro { font-size:19px; }
 .landing-page .transfer-actions { margin:18px 0; }
+.account-welcome { display:grid; gap:7px; margin:18px 0 12px; padding:14px 16px; border:1px solid #cbd9cc; border-radius:8px; background:#f1f6ef; max-width:520px; color:#355943; }
+.account-welcome span { color:var(--muted); font-size:13px; }
+.account-welcome small { font-size:12px; }
+.account-welcome .primary { justify-self:start; margin-top:4px; }
+.account-label { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
+.auth-loading { display:flex; align-items:center; justify-content:center; gap:10px; min-height:55vh; color:var(--muted); font-size:15px; }
+.loading-dot { width:9px; height:9px; border-radius:50%; background:#719478; box-shadow:0 0 0 4px #71947822; }
+.account-alert { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.account-alert .alert-actions { flex-shrink:0; }
+@media(max-width:600px) { .app-header .account-label { display:none; } .account-alert { align-items:flex-start; flex-direction:column; } }
 @media(max-width:600px) { .app-header nav button { padding-inline:6px; }.app-header .save-status { display:none; }.landing-page { padding-left:13px; } }
 
 .stats-price-summary { display:flex; align-items:baseline; flex-wrap:wrap; gap:5px 10px; padding:0 0 10px; color:var(--green); }.stats-price-summary strong { font-size:1.25rem; }.stats-price-summary small,.stats-price-summary .help { color:var(--muted); }.set-options small { white-space:nowrap; }
@@ -749,6 +767,8 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .app-shell[data-theme="dark"] .save-status { color:#b6c8b5; }
 .app-shell[data-theme="dark"] .save-status::before { background:#88b58a; }
 .app-shell[data-theme="dark"] .save-status.storage-failed { color:#f2b18f; }
+.app-shell[data-theme="dark"] .account-welcome { background:#1c2922; border-color:#3a5142; color:#c3d9c6; }
+.app-shell[data-theme="dark"] .account-label { color:#a8b8ad; }
 .app-shell[data-theme="dark"] .search-empty,
 .app-shell[data-theme="dark"] .result-count,
 .app-shell[data-theme="dark"] .scryfall-credit,

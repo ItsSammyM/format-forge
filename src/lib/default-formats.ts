@@ -1,4 +1,6 @@
 import type { Format, Library } from './model.ts';
+import { DEFAULT_FORMAT_IDS } from './default-format-ids.ts';
+export { DEFAULT_FORMAT_IDS };
 
 // Verified against the community format sites on 2026-10-14.
 // https://www.2015modern.com/legal-sets
@@ -18,7 +20,6 @@ const commanderBans = ['Ancestral Recall', 'Balance', 'Black Lotus', 'Chaos Orb'
 const canadianPoints: [string, number][] = [
   ['Ancestral Recall', 8], ['Ancient Tomb', 1], ['Balance', 1], ['Black Lotus', 7], ['Demonic Tutor', 3], ['Dig Through Time', 1], ['Enlightened Tutor', 1], ['Flash', 7], ['Forth Eorlingas!', 1], ['Gifts Ungiven', 1], ['Imperial Seal', 1], ['Intuition', 1], ['Mana Crypt', 5], ['Mana Drain', 1], ['Mana Vault', 1], ['Merchant Scroll', 1], ['Mox Emerald', 3], ['Mox Jet', 3], ['Mox Pearl', 3], ['Mox Ruby', 3], ['Mox Sapphire', 3], ['Mystical Tutor', 2], ['Nadu, Winged Wisdom', 1], ['Natural Order', 1], ['Psychic Frog', 1], ['Reanimate', 1], ['Sol Ring', 3], ['Spellseeker', 1], ['Strip Mine', 1], ['Tainted Pact', 1], ['Tamiyo, Inquisitive Student', 1], ["Thassa's Oracle", 5], ['The Fantasticar', 1], ['The One Ring', 1], ['Time Vault', 7], ['Time Walk', 5], ['Tinker', 3], ['Tolarian Academy', 2], ['Treasure Cruise', 1], ['True-Name Nemesis', 1], ['Underworld Breach', 3], ["Urza's Saga", 1], ['Vampiric Tutor', 2], ['White Plume Adventurer', 1], ['Wishclaw Talisman', 1], ['Wrenn and Six', 1],
 ];
-export const DEFAULT_FORMAT_IDS = ['no-format', '2015-modern', 'prefire', 'commander', 'modern', 'canadian-highlander', 'legacy', 'vintage', 'pauper', 'pioneer', 'premodern', 'pauper-edh'];
 const normalizeTag = (tag: string) => tag.trim().toLocaleLowerCase('en-US');
 export const isDefaultFormat = (id: string) => DEFAULT_FORMAT_IDS.includes(id);
 export function defaultFormats(): Format[] {

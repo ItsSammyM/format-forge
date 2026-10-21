@@ -1,4 +1,5 @@
 import { builtInFormats } from './default-formats.ts';
+import { DEFAULT_FORMAT_IDS } from './default-format-ids.ts';
 export type Zone = 'main' | 'side' | 'considering' | 'commander' | 'companion' | 'conspiracy';
 export const ZONES: Zone[] = ['main', 'side', 'considering', 'commander', 'companion', 'conspiracy'];
 export type UISection = Zone | 'search' | 'lands';
@@ -79,11 +80,15 @@ export function normalizeFormatLimits(value: { [K in 'maxCards' | 'maxSideboard'
     minDeckPrice: optionalLimit(value.minDeckPrice), maxDeckPrice: optionalLimit(value.maxDeckPrice),
   };
 }
-export function formatText(format: Format): string { return JSON.stringify({ version: 1, formats: [format], decks: [] }, null, 2); }
+export function formatText(format: Format): string {
+  if (DEFAULT_FORMAT_IDS.includes(format.id)) throw new Error('Built-in formats are provided by the app. Duplicate one before exporting a custom format.');
+  return JSON.stringify({ version: 1, formats: [format], decks: [] }, null, 2);
+}
 export function parseFormatText(raw: string): Format[] {
   const library = parseLibrary(raw);
-  if (!library.formats.length || library.decks.length) throw new Error('Choose a standalone format export, not a deck-library backup.');
-  return library.formats;
+  const formats = library.formats.filter(format => !DEFAULT_FORMAT_IDS.includes(format.id));
+  if (!formats.length || library.decks.length) throw new Error('Choose a standalone custom format export, not a built-in format or deck-library backup.');
+  return formats;
 }
 export function officialLegality(card: Pick<CardEntry, 'info'>, format: Format): string | undefined {
   const key = format.officialFormat;

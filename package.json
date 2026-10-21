@@ -11,6 +11,9 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
+  "dependencies": {
+    "better-auth": "1.6.33"
+  },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "svelte": "^5.0.0",

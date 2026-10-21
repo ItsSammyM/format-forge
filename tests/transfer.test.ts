@@ -20,7 +20,7 @@ const mappingsFor = (plan: ReturnType<typeof planImport>) => Object.fromEntries(
 test('selected deck export retains per-zone printings and contents, without personal defaults or layout', () => {
   const library = source(); const file = parseTransfer(transferText(library, 'decks', ['original'], []));
   assert.equal(file.decks.length, 1); assert.equal(file.formats.length, 0);
-  assert.deepEqual(file.formatRefs, [{ id: library.formats[0].id, name: library.formats[0].name }]);
+  assert.deepEqual(file.formatRefs, []);
   assert.equal(file.decks[0].cards[0].printing!.scryfallId, 'chosen-print');
   assert.equal(file.decks[0].cards[1].printing!.scryfallId, 'side-print');
   assert.equal(file.decks[0].cards[2].printing, undefined);
@@ -30,10 +30,15 @@ test('selected deck export retains per-zone printings and contents, without pers
 });
 
 test('combined export includes required formats and explicitly selected extra formats', () => {
-  const library = source(); const file = parseTransfer(transferText(library, 'both', ['original'], [library.formats[2].id]));
-  assert.deepEqual(file.formats.map(format => format.id), [library.formats[0].id, library.formats[2].id]);
-  const formats = createTransfer(library, 'formats', ['original'], [library.formats[1].id]);
+  const library = source();
+  const custom = { ...library.formats[1], id: 'custom-format', name: 'Custom format' };
+  library.formats.push(custom);
+  const file = parseTransfer(transferText(library, 'both', ['original'], [custom.id]));
+  assert.deepEqual(file.formats.map(format => format.id), [custom.id]);
+  assert.deepEqual(file.formatRefs, []);
+  const formats = createTransfer(library, 'formats', ['original'], [custom.id]);
   assert.equal(formats.decks.length, 0); assert.equal(formats.formatRefs.length, 0); assert.equal(formats.formats.length, 1);
+  assert.throws(() => createTransfer(library, 'formats', [], [library.formats[0].id]), /Select at least one/);
   assert.throws(() => createTransfer(library, 'decks', [], []), /Select at least one/);
 });
 
@@ -44,6 +49,7 @@ test('bulk imports append decks with fresh IDs, preserving printings and destina
   assert.equal(result.decks.length, 6); assert.equal(result.formats.length, destination.formats.length);
   assert.equal(new Set(result.decks.map(deck => deck.id)).size, 6);
   const imported = result.decks[2]; assert.notEqual(imported.id, destination.decks[0].id);
+  assert.equal(imported.formatId, destination.decks[0].formatId);
   assert.notEqual(imported.cards[0].id, destination.decks[0].cards[0].id);
   assert.equal(imported.cards[0].info!.scryfallId, 'chosen-print'); assert.equal(imported.cards[1].info!.scryfallId, 'side-print');
   assert.equal(imported.views, undefined); assert.equal(imported.layout, undefined);
@@ -54,7 +60,8 @@ test('bulk imports append decks with fresh IDs, preserving printings and destina
 });
 
 test('decks-only imports require a destination mapping and failure leaves the original intact', () => {
-  const library = source(); const file = parseTransfer(transferText(library, 'decks', ['original'], []));
+  const library = source(); library.formats[0] = { ...library.formats[0], id: 'custom-burn', name: 'Custom burn' }; library.decks[0].formatId = 'custom-burn';
+  const file = parseTransfer(transferText(library, 'decks', ['original'], []));
   const destination = createLibrary(); const plan = planImport(destination, [file]);
   assert.equal(plan.references.length, 1); assert.equal(plan.references[0].suggestedId, destination.formats[0].id);
   const snapshot = JSON.stringify(destination);
@@ -66,7 +73,7 @@ test('decks-only imports require a destination mapping and failure leaves the or
 });
 
 test('same-name formats with different rules are imported separately and decks follow them', () => {
-  const library = source(); library.formats[0].copyLimit = 2;
+  const library = source(); library.formats[0] = { ...library.formats[0], id: 'custom-burn', name: 'Burn custom rules', copyLimit: 2 }; library.decks[0].formatId = 'custom-burn';
   const file = parseTransfer(transferText(library, 'both', ['original'], []));
   const destination = createLibrary(); const plan = planImport(destination, [file]); const result = applyImport(destination, [file], plan, {});
   assert.equal(plan.newFormats.length, 1); assert.match(plan.newFormats[0].name, /\(imported\)/);
@@ -84,8 +91,10 @@ test('multiple files can supply decks and their formats separately', () => {
 });
 
 test('full backups preserve future preferred printings and personal settings as well as chosen printings', () => {
-  const library = source(); const restored = parseBackupText(backupText(library));
+  const library = source(), raw = backupText(library), data = JSON.parse(raw); const restored = parseBackupText(raw);
+  assert.ok(!data.formats.some((format: { id: string }) => ['no-format', 'commander', 'modern'].includes(format.id)));
   assert.equal(restored.decks[0].cards[0].info!.scryfallId, 'chosen-print');
+  assert.ok(restored.formats.some(format => format.id === library.decks[0].formatId));
   assert.equal(restored.preferredPrintings!['lightning bolt'].scryfallId, 'future-default');
   assert.deepEqual(restored.decks[0].layout, library.decks[0].layout); assert.deepEqual(restored.decks[0].views, library.decks[0].views);
   assert.equal(parseBackupText(JSON.stringify(library)).decks.length, 2);
@@ -94,7 +103,8 @@ test('full backups preserve future preferred printings and personal settings as 
 });
 
 test('portable import rejects invalid contents before any edits, and accepts legacy standalone formats', () => {
-  const library = source(); const file = createTransfer(library, 'both', ['original'], []);
+  const library = source(); library.formats[0] = { ...library.formats[0], id: 'custom-burn', name: 'Burn custom' }; library.decks[0].formatId = 'custom-burn';
+  const file = createTransfer(library, 'both', ['original'], []);
   const reject = (edit: (value: any) => void) => { const copy = structuredClone(file); edit(copy); assert.throws(() => parseTransfer(JSON.stringify(copy))); };
   reject(value => value.decks[0].cards[0].quantity = 0);
   reject(value => value.decks.push(value.decks[0]));
@@ -103,5 +113,6 @@ test('portable import rejects invalid contents before any edits, and accepts leg
   reject(value => value.formats = []);
   reject(value => value.preferredPrintings = library.preferredPrintings);
   reject(value => value.decks[0].layout = { workspace: 70 });
-  const legacy = parseTransfer(formatText(library.formats[0])); assert.equal(legacy.scope, 'formats'); assert.equal(legacy.formats.length, 1);
+  const legacyFormat = { ...library.formats[0], id: 'legacy-custom', name: 'Legacy custom' };
+  const legacy = parseTransfer(formatText(legacyFormat)); assert.equal(legacy.scope, 'formats'); assert.equal(legacy.formats.length, 1);
 });
