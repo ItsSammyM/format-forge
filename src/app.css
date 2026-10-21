@@ -575,7 +575,7 @@ html[data-theme="dark"] .library-transfer-dialog fieldset { background:#18221c; 
 .destructive-confirm-dialog input { width:100%; }
 .danger-button { border:1px solid #a34432; border-radius:5px; padding:8px 11px; background:#a34432; color:#fff; font:inherit; cursor:pointer; }
 .danger-button:disabled { opacity:.5; cursor:not-allowed; }
-.landing-page { max-width:760px; margin:clamp(22px,7vh,70px) auto; border-left:3px solid #89ad90; padding:8px 0 8px 20px; }
+.landing-page { max-width:760px; margin:clamp(22px,7vh,70px) auto; border-left:3px solid var(--accent-focus); padding:8px 0 8px 20px; }
 .landing-page h1 { font-size:clamp(30px,5vw,46px); margin-bottom:8px; color:var(--green); }
 .landing-intro { font-size:19px; }
 .landing-page .transfer-actions { margin:18px 0; }
@@ -869,6 +869,7 @@ html[data-theme="dark"][data-accent] .app-shell {
   background:var(--page-bg);
 }
 html[data-accent] .app-shell .app-header { background:var(--header-bg); border-color:var(--surface-border); }
+html[data-accent] .app-shell .account-label { color:var(--muted); }
 html[data-accent] .app-shell :is(
   .panel, .deck-card, .format-card, .board, .search-pane, .card-search,
   .card-details-panel, .stats-panel, .primer-window, .lands-window,
