@@ -759,8 +759,10 @@ html[data-theme="dark"] dialog .section-heading { border-color:var(--surface-bor
 .app-shell[data-theme="dark"] .card-group-heading { color:#b7c8b8; }
 .app-shell[data-theme="dark"] .card-group-heading { background:#202c24; }
 .app-shell[data-theme="dark"] .board.drop-highlight { background:#23352a; outline-color:#7fb28a; }
-.app-shell[data-theme="dark"] .search-workspace > .split-pane > .resize-handle,
-.app-shell[data-theme="dark"] .resize-handle::after { background:#26342a; border-color:#3a4a3e; }
+.app-shell[data-theme="dark"] .search-workspace > .split-pane > .resize-handle {
+  background:var(--resize-track); border-color:var(--surface-border);
+}
+.app-shell[data-theme="dark"] .resize-handle::after { background:var(--resize-grip); }
 .app-shell[data-theme="dark"] .format-check summary,
 .app-shell[data-theme="dark"] .deck-actions-menu summary { color:#d4e3d4; }
 .app-shell[data-theme="dark"] .card-preview,
@@ -1041,7 +1043,8 @@ html[data-theme="dark"][data-accent] .app-shell nav button.active {
   box-shadow:inset 0 -2px 0 var(--accent-dark);
 }
 html[data-accent] .app-shell :is(
-  .deck-card-name,.deck-card-name span,.icon-button,.builder-details summary,
+  .deck-card-name,.deck-card-name .card-text,.deck-card-name .entry-count,
+  .deck-card-name .card-list-details small,.icon-button,.builder-details summary,
   .advanced-search,.set-picker summary,.format-extras summary,
   .search-empty,.result-count,.scryfall-credit,.rule-card-row > .rule-card-name,
   .card-details-rules h3,.card-metric,.board-heading > span,.board-empty,
@@ -1049,10 +1052,14 @@ html[data-accent] .app-shell :is(
   .rule-list-group-heading,.reopen-windows > span
 ) { color:var(--accent-ink); }
 html[data-theme="dark"][data-accent] .app-shell :is(
-  .deck-card-name,.deck-card-name span,.icon-button,.builder-details summary,
+  .deck-card-name,.deck-card-name .card-text,.deck-card-name .entry-count,
+  .deck-card-name .card-list-details small,.icon-button,.builder-details summary,
   .advanced-search,.set-picker summary,.format-extras summary,
   .search-empty,.result-count,.scryfall-credit,.rule-card-row > .rule-card-name,
   .card-details-rules h3,.card-metric,.board-heading > span,.board-empty,
   .card-drag-handle,.set-options label,.set-options label small,
   .rule-list-group-heading,.reopen-windows > span
 ) { color:var(--accent-dark-ink); }
+html[data-accent] .app-shell .mana-symbol,
+html[data-accent] .app-shell .mana-cost-pip,
+html[data-accent] .app-shell .mana-generic { color:#181818; }
