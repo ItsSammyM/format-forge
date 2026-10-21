@@ -1,6 +1,7 @@
 import { createAuth, ensureAuthSchema } from '../../src/lib/auth-server';
 import type { AuthEnv } from '../../src/lib/auth-server';
 import { compactLibraryData } from '../../src/lib/library-data';
+import { d1BlobBytes } from '../../src/lib/d1-bytes';
 
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
@@ -53,12 +54,6 @@ function splitBytes(bytes: Uint8Array) {
   return chunks.length ? chunks : [new Uint8Array()];
 }
 
-function asBytes(value: unknown): Uint8Array {
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  throw new TypeError('Stored library chunk is not binary data.');
-}
-
 function joinBytes(chunks: Uint8Array[]) {
   const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
   let offset = 0;
@@ -90,38 +85,38 @@ export async function onRequest({ request, env }: Context) {
     await ensureAuthSchema(auth, env.DB as object);
     userId = await getUserId(request, auth);
   } catch {
-    return json({ error: 'Could not verify your session. Check the Better Auth and D1 configuration.' }, 503);
+    return json({ error: 'We couldn’t verify your sign-in. Please sign out and sign in again.' }, 503);
   }
-  if (!userId) return json({ error: 'Sign in to access your cloud library.' }, 401);
+  if (!userId) return json({ error: 'Please sign in to access your library.' }, 401);
 
   if (request.method === 'GET') {
     try {
       const { results } = await env.DB.prepare('SELECT payload FROM library_chunks WHERE user_id = ? ORDER BY chunk_index')
-        .bind(userId).all<{ payload: ArrayBuffer | Uint8Array }>();
+        .bind(userId).all<{ payload: ArrayBuffer | ArrayBufferView | number[] }>();
       if (!results.length) return json({ library: null });
-      const chunks = results.map(row => asBytes(row.payload));
+      const chunks = results.map(row => d1BlobBytes(row.payload));
       const compressedSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-      if (compressedSize > MAX_LIBRARY_BYTES + 1024 * 1024) return json({ error: 'Stored library exceeds the 32 MB limit.' }, 413);
+      if (compressedSize > MAX_LIBRARY_BYTES + 1024 * 1024) return json({ error: 'Your saved library is too large to open.' }, 413);
       const compressed = joinBytes(chunks);
       const serialized = await gunzip(compressed);
-      if (new TextEncoder().encode(serialized).byteLength > MAX_LIBRARY_BYTES) return json({ error: 'Stored library exceeds the 32 MB limit.' }, 413);
+      if (new TextEncoder().encode(serialized).byteLength > MAX_LIBRARY_BYTES) return json({ error: 'Your saved library is too large to open.' }, 413);
       return json({ library: JSON.parse(serialized) });
     } catch {
-      return json({ error: 'Could not read the cloud library. Check that the D1 schema is installed.' }, 503);
+      return json({ error: 'We couldn’t load your saved library. Please try again. Your saved data hasn’t been changed.' }, 503);
     }
   }
 
   const declaredSize = Number(request.headers.get('Content-Length') ?? 0);
-  if (declaredSize > MAX_LIBRARY_BYTES + 1024) return json({ error: 'This library exceeds the 32 MB cloud sync limit.' }, 413);
+  if (declaredSize > MAX_LIBRARY_BYTES + 1024) return json({ error: 'Your library is too large to sync. Export a backup and remove some saved data before trying again.' }, 413);
   try {
     const rawBody = await readLimitedText(request, MAX_LIBRARY_BYTES + 1024);
     const input = JSON.parse(rawBody) as { library?: unknown };
-    if (!input.library || typeof input.library !== 'object' || Array.isArray(input.library)) return json({ error: 'The submitted library is invalid.' }, 400);
+    if (!input.library || typeof input.library !== 'object' || Array.isArray(input.library)) return json({ error: 'Your library could not be read. Please export a backup and try again.' }, 400);
     const library = input.library as { version?: unknown; decks?: unknown; formats?: unknown };
-    if (library.version !== 1 || !Array.isArray(library.decks) || !Array.isArray(library.formats)) return json({ error: 'The submitted library has an unsupported format.' }, 400);
+    if (library.version !== 1 || !Array.isArray(library.decks) || !Array.isArray(library.formats)) return json({ error: 'Your library could not be read. Please export a backup and try again.' }, 400);
     const compact = compactLibraryData(library as Parameters<typeof compactLibraryData>[0]);
     const serialized = JSON.stringify(compact);
-    if (new TextEncoder().encode(serialized).byteLength > MAX_LIBRARY_BYTES) return json({ error: 'This library exceeds the 32 MB cloud sync limit.' }, 413);
+    if (new TextEncoder().encode(serialized).byteLength > MAX_LIBRARY_BYTES) return json({ error: 'Your library is too large to sync. Export a backup and remove some saved data before trying again.' }, 413);
     const compressed = await gzip(serialized);
     const chunks = splitBytes(compressed);
     const updatedAt = new Date().toISOString();
@@ -133,8 +128,8 @@ export async function onRequest({ request, env }: Context) {
     await env.DB.batch(statements);
     return json({ saved: true, bytes: compressed.byteLength, updatedAt });
   } catch (error) {
-    if (error instanceof RangeError) return json({ error: 'This library exceeds the 32 MB cloud sync limit.' }, 413);
-    if (error instanceof SyntaxError) return json({ error: 'The submitted library is not valid JSON.' }, 400);
-    return json({ error: 'Could not save the cloud library. Check the D1 binding and migrations.' }, 503);
+    if (error instanceof RangeError) return json({ error: 'Your library is too large to sync. Export a backup and remove some saved data before trying again.' }, 413);
+    if (error instanceof SyntaxError) return json({ error: 'Your library could not be read. Please export a backup and try again.' }, 400);
+    return json({ error: 'We couldn’t save your changes. Check your connection and try again.' }, 503);
   }
 }

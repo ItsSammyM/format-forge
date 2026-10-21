@@ -552,6 +552,8 @@ html[data-theme="dark"] .library-transfer-dialog .quiet:hover { background:#2d3b
 .card-zoom-control input[type="range"] { padding:0; min-height:22px; accent-color:var(--green); }
 .header-settings-popover { position:fixed; inset:auto 12px auto auto; top:58px; margin:0; width:min(310px,calc(100vw - 16px)); padding:14px; border:1px solid var(--border); border-radius:10px; background:#fcfdf9; color:inherit; box-shadow:var(--floating-shadow); }
 .header-settings-popover h2 { margin:0 0 12px; font-size:1rem; }
+.header-settings-popover .settings-select { display:grid; gap:5px; margin-bottom:12px; color:var(--muted); font-size:12px; }
+.header-settings-popover .settings-select select { width:100%; }
 .header-settings-popover .card-zoom-control { display:grid; gap:6px; margin-bottom:12px; }
 .header-settings-popover .checkbox-label { margin:0; }
 .landing-page { max-width:760px; margin:clamp(22px,7vh,70px) auto; border-left:3px solid #89ad90; padding:8px 0 8px 20px; }
@@ -702,6 +704,7 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .app-shell[data-theme="dark"] .image-board .entry-count,
 .app-shell[data-theme="dark"] .deck-toolbar .format-check,
 .app-shell[data-theme="dark"] .deck-toolbar .format-check:not(.has-issues) { background:#202c24; border-color:#3a4a3e; color:#d4e3d4; }
+.app-shell[data-theme="dark"] .header-settings-popover select { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
 .app-shell[data-theme="dark"] .deck-toolbar .format-check.has-issues { background:#382d1e; border-color:#6b5633; color:#e6cb8c; }
 .app-shell[data-theme="dark"] .deck-toolbar .format-check .check-content,
 .app-shell[data-theme="dark"] .deck-actions-menu > div,

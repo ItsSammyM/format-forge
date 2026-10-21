@@ -8,4 +8,4 @@
     return () => clearInterval(timer);
   });
 </script>
-{#if until}<div class="alert" role="status">Scryfall requests are paused until {new Date(until).toLocaleTimeString()}. Cached cards remain available. Retry after the pause.</div>{/if}
+{#if until}<div class="alert" role="status">Card search is paused until {new Date(until).toLocaleTimeString()}. Saved card results remain available. Try again after the pause.</div>{/if}

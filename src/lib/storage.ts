@@ -12,14 +12,14 @@ export function loadLibrary(): { library: Library; error: string; writable: bool
     return {
       library: createLibrary(), writable: false, recovery: raw,
       error: raw ? 'Saved data could not be read. Download the stored data before replacing it with a backup or a fresh library.'
-        : 'Browser storage is unavailable. Changes will stay in this tab only. Export a backup to keep them.',
+        : 'This device can’t save your changes right now. They may be lost when you close this tab. Export a backup to keep them.',
     };
   }
 }
 
 export function saveLibrary(library: Library): string {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(compactLibraryData(library, true))); return ''; }
-  catch { return 'Changes could not be saved to this browser. Export a backup before closing this tab.'; }
+  catch { return 'Your changes couldn’t be saved on this device. Export a backup before closing this tab.'; }
 }
 
 export function download(contents: string, filename: string, type = 'application/json') {
