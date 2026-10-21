@@ -6,6 +6,7 @@ import { d1BlobBytes } from '../../src/lib/d1-bytes';
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
   all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  run(): Promise<unknown>;
 }
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
@@ -78,7 +79,7 @@ async function getUserId(request: Request, auth: ReturnType<typeof createAuth>) 
 }
 
 export async function onRequest({ request, env }: Context) {
-  if (request.method !== 'GET' && request.method !== 'PUT') return json({ error: 'Method not allowed.' }, 405);
+  if (request.method !== 'GET' && request.method !== 'PUT' && request.method !== 'DELETE') return json({ error: 'Method not allowed.' }, 405);
   let userId: string | null;
   try {
     const auth = createAuth(env);
@@ -88,6 +89,15 @@ export async function onRequest({ request, env }: Context) {
     return json({ error: 'We couldn’t verify your sign-in. Please sign out and sign in again.' }, 503);
   }
   if (!userId) return json({ error: 'Please sign in to access your library.' }, 401);
+
+  if (request.method === 'DELETE') {
+    try {
+      await env.DB.prepare('DELETE FROM library_chunks WHERE user_id = ?').bind(userId).run();
+      return json({ deleted: true });
+    } catch {
+      return json({ error: 'We couldn’t clear your saved library. Please try again.' }, 503);
+    }
+  }
 
   if (request.method === 'GET') {
     try {

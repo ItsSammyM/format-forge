@@ -17,5 +17,6 @@ export function compactLibraryData(library: Library, preserveDefaultsVersion = f
     ...(preserveDefaultsVersion && library.defaultsVersion !== undefined ? { defaultsVersion: library.defaultsVersion } : {}),
     ...(preferredView ? { preferredView } : {}),
     ...(preferredPrintings ? { preferredPrintings } : {}),
+    ...(library.theme ? { theme: library.theme } : {}),
   };
 }

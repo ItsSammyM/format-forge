@@ -9,6 +9,10 @@ export interface AuthEnv {
   DISCORD_CLIENT_SECRET: string;
 }
 
+interface LibraryCleanupDatabase {
+  prepare(query: string): { bind(...values: unknown[]): { run(): Promise<unknown> } };
+}
+
 const schemaReady = new WeakMap<object, Promise<void>>();
 
 export function createAuth(env: AuthEnv) {
@@ -17,6 +21,14 @@ export function createAuth(env: AuthEnv) {
     baseURL: env.BETTER_AUTH_URL,
     secret: env.BETTER_AUTH_SECRET,
     database: env.DB as never,
+    user: {
+      deleteUser: {
+        enabled: true,
+        afterDelete: async user => {
+          await (env.DB as LibraryCleanupDatabase).prepare('DELETE FROM library_chunks WHERE user_id = ?').bind(user.id).run();
+        },
+      },
+    },
     trustedOrigins: [env.BETTER_AUTH_URL],
     emailAndPassword: { enabled: false },
     socialProviders: {

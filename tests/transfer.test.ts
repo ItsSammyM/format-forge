@@ -29,20 +29,21 @@ test('selected deck export retains per-zone printings and contents, without pers
   assert.ok(!raw.includes('future-default')); assert.ok(!raw.includes('hiddenZones')); assert.ok(!raw.includes('views'));
 });
 
-test('combined export includes required formats and explicitly selected extra formats', () => {
+test('combined export includes selected decks and formats without account preferences', () => {
   const library = source();
   const custom = { ...library.formats[1], id: 'custom-format', name: 'Custom format' };
   library.formats.push(custom);
   const file = parseTransfer(transferText(library, 'both', ['original'], [custom.id]));
   assert.deepEqual(file.formats.map(format => format.id), [custom.id]);
   assert.deepEqual(file.formatRefs, []);
+  assert.ok(!JSON.stringify(file).includes('preferredPrintings')); assert.ok(!JSON.stringify(file).includes('theme'));
   const formats = createTransfer(library, 'formats', ['original'], [custom.id]);
   assert.equal(formats.decks.length, 0); assert.equal(formats.formatRefs.length, 0); assert.equal(formats.formats.length, 1);
   assert.throws(() => createTransfer(library, 'formats', [], [library.formats[0].id]), /Select at least one/);
   assert.throws(() => createTransfer(library, 'decks', [], []), /Select at least one/);
 });
 
-test('bulk imports append decks with fresh IDs, preserving printings and destination preferences', () => {
+test('bulk imports append decks with fresh IDs and preserve destination preferences', () => {
   const destination = source(), snapshot = JSON.stringify(destination);
   const file = parseTransfer(transferText(destination, 'both', ['original', 'other'], []));
   const plan = planImport(destination, [file, file]); const result = applyImport(destination, [file, file], plan, {});
@@ -53,7 +54,7 @@ test('bulk imports append decks with fresh IDs, preserving printings and destina
   assert.notEqual(imported.cards[0].id, destination.decks[0].cards[0].id);
   assert.equal(imported.cards[0].info!.scryfallId, 'chosen-print'); assert.equal(imported.cards[1].info!.scryfallId, 'side-print');
   assert.equal(imported.views, undefined); assert.equal(imported.layout, undefined);
-  assert.deepEqual(result.preferredPrintings, destination.preferredPrintings);
+  assert.deepEqual(result.preferredPrintings, destination.preferredPrintings); assert.equal(result.theme, destination.theme);
   assert.deepEqual(result.decks[0].layout, destination.decks[0].layout);
   assert.equal(JSON.stringify(destination), snapshot);
   assert.equal(parseLibrary(JSON.stringify(result)).decks.length, 6);
@@ -90,16 +91,18 @@ test('multiple files can supply decks and their formats separately', () => {
   assert.equal(result.decks[0].formatId, result.formats.at(-1)!.id);
 });
 
-test('full backups preserve future preferred printings and personal settings as well as chosen printings', () => {
-  const library = source(), raw = backupText(library), data = JSON.parse(raw); const restored = parseBackupText(raw);
+test('account backups preserve future preferred printings and personal settings as well as chosen printings', () => {
+  const library = source(); library.theme = 'light';
+  const raw = backupText(library), data = JSON.parse(raw); const restored = parseBackupText(raw);
   assert.ok(!data.formats.some((format: { id: string }) => ['no-format', 'commander', 'modern'].includes(format.id)));
   assert.equal(restored.decks[0].cards[0].info!.scryfallId, 'chosen-print');
   assert.ok(restored.formats.some(format => format.id === library.decks[0].formatId));
   assert.equal(restored.preferredPrintings!['lightning bolt'].scryfallId, 'future-default');
   assert.deepEqual(restored.decks[0].layout, library.decks[0].layout); assert.deepEqual(restored.decks[0].views, library.decks[0].views);
   assert.equal(parseBackupText(JSON.stringify(library)).decks.length, 2);
-  assert.throws(() => parseTransfer(backupText(library)), /Restore backup/);
-  assert.throws(() => parseBackupText(transferText(library, 'both', ['original'], [])), /full backup/);
+  assert.equal(restored.theme, 'light');
+  assert.throws(() => parseTransfer(backupText(library)), /Account backups/);
+  assert.throws(() => parseBackupText(transferText(library, 'both', ['original'], [])), /backup/);
 });
 
 test('portable import rejects invalid contents before any edits, and accepts legacy standalone formats', () => {

@@ -2,17 +2,18 @@
   import { onMount } from 'svelte';
   import ScryfallStatus from './components/ScryfallStatus.svelte';
   import LibraryTransfer from './components/LibraryTransfer.svelte';
+  import AccountBackup from './components/AccountBackup.svelte';
   import { parseBackupText } from './lib/transfer';
   import DeckEditor from './components/DeckEditor.svelte';
   import FormatEditor from './components/FormatEditor.svelte';
   import LibraryToolbar from './components/LibraryToolbar.svelte';
   import LibraryCard from './components/LibraryCard.svelte';
-  import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, deckText, parseDeckText, parseFormatText, normalizeName, validateDeck } from './lib/model';
+  import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, deckText, parseDeckText, parseFormatText, normalizeName, validateDeck, STORAGE_KEY } from './lib/model';
   import { addDefaultFormats, isDefaultFormat } from './lib/default-formats';
   import type { BoardView, Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
   import { DEFAULT_VIEW } from './lib/deck-view';
-  import { authConfigured, loadAccountLibrary, loginWithDiscord, logout, saveAccountLibrary, startAuth } from './lib/auth';
+  import { authConfigured, clearAccountLibrary, deleteAccount, loadAccountLibrary, loginWithDiscord, logout, saveAccountLibrary, startAuth } from './lib/auth';
   import type { AuthSession } from './lib/auth';
 
   const THEME_KEY = 'format-forge.theme';
@@ -31,8 +32,14 @@
   let authError = $state('');
   let cloudSaveTimer: ReturnType<typeof setTimeout> | undefined;
   let cloudSaveQueue: Promise<void> = Promise.resolve();
-  let theme = $state<'dark' | 'light'>(readTheme());
+  let theme = $state<'dark' | 'light'>(loaded.library.theme ?? readTheme());
   let transferOpen = $state(false);
+  let backupOpen = $state(false);
+  let destructiveDialog: HTMLDialogElement;
+  let destructiveAction = $state<'account' | 'data' | null>(null);
+  let typedConfirmation = $state('');
+  let destructiveBusy = $state(false);
+  let skipCloudSnapshot: string | null = null;
   let page = $state<'home' | 'decks' | 'formats'>('home');
   let selectedId = $state<string | null>(null);
   let editing = $state<Format | null>(null);
@@ -86,6 +93,7 @@
 
   $effect(() => {
     const snapshot = JSON.stringify(library);
+    if (authStatus === 'cloud' && snapshot === skipCloudSnapshot) { skipCloudSnapshot = null; return; }
     if ((authStatus === 'local' || authStatus === 'error') && writable) storageError = saveLibrary(JSON.parse(snapshot));
     if (authStatus === 'cloud' && authSession) {
       if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
@@ -102,7 +110,7 @@
   });
   $effect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* The current theme still applies for this tab. */ }
+    library.theme = theme;
   });
 
   onMount(() => {
@@ -117,12 +125,17 @@
         if (!active) return;
         if (accountLibrary) {
           library = accountLibrary;
+          theme = accountLibrary.theme ?? theme;
         } else {
-          const firstAccountLibrary = addDefaultFormats(JSON.parse(JSON.stringify(library)));
-          await saveAccountLibrary(auth.session, firstAccountLibrary);
+          const firstAccountLibrary = { ...addDefaultFormats(JSON.parse(JSON.stringify(library))), theme };
+          const hasLocalData = firstAccountLibrary.decks.length > 0
+            || firstAccountLibrary.formats.some(format => !isDefaultFormat(format.id))
+            || !!firstAccountLibrary.preferredView
+            || firstAccountLibrary.theme === 'light'
+            || Object.keys(firstAccountLibrary.preferredPrintings ?? {}).length > 0;
+          if (hasLocalData) await saveAccountLibrary(auth.session, firstAccountLibrary);
           if (!active) return;
           library = firstAccountLibrary;
-          notice = 'Your library is synced to your account. This device keeps a separate copy when you sign out.';
         }
         writable = true;
         authStatus = 'cloud';
@@ -144,6 +157,45 @@
   async function signOut() {
     try { await logout(); }
     catch (error) { authError = error instanceof Error ? error.message : 'Could not sign out.'; }
+  }
+
+  function askDestructive(action: 'account' | 'data') {
+    destructiveAction = action;
+    typedConfirmation = '';
+    destructiveDialog.showModal();
+  }
+
+  async function confirmDestructive() {
+    if (!destructiveAction || typedConfirmation !== (destructiveAction === 'account' ? 'DELETE ACCOUNT' : 'DELETE ALL DATA')) return;
+    destructiveBusy = true;
+    authError = '';
+    try {
+      if (destructiveAction === 'account') {
+        if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+        await cloudSaveQueue.catch(() => undefined);
+        await deleteAccount();
+      } else if (authSession) {
+        if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+        await cloudSaveQueue.catch(() => undefined);
+        await clearAccountLibrary(authSession);
+        const fresh = { ...createLibrary(), theme: 'dark' as const };
+        skipCloudSnapshot = JSON.stringify(fresh);
+        library = fresh;
+        saveLibrary(fresh);
+      } else {
+        library = { ...createLibrary(), theme: 'dark' };
+        saveLibrary(library);
+      }
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(THEME_KEY);
+      theme = 'dark';
+      destructiveDialog.close();
+      window.location.reload();
+    } catch (error) {
+      authError = error instanceof Error ? error.message : destructiveAction === 'account' ? 'We couldn’t delete your account. Please try again.' : 'We couldn’t clear your library. Please try again.';
+    } finally {
+      destructiveBusy = false;
+    }
   }
 
   function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
@@ -221,8 +273,9 @@
   function exportDeck(deck: Deck) { download(deckText(deck), `${deck.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'deck'}.txt`, 'text/plain'); }
   function restoreBackup(raw: string, filename: string): boolean {
     const imported = parseBackupText(raw);
-    if (!confirm(`Replace this library with ${imported.decks.length} decks and ${imported.formats.length} formats from "${filename}"? Export a full backup first if you want to keep your current library.`)) return false;
-    library = imported; writable = true; recovery = ''; selectedId = null; editing = null; creating = false; filter = ''; tagFilter = ''; search = ''; notice = 'Full backup restored.';
+    if (!confirm(`Replace your entire account data with the backup "${filename}"? This replaces decks, formats, printings, and preferences.`)) return false;
+    library = imported; writable = true; recovery = ''; selectedId = null; editing = null; creating = false; filter = ''; tagFilter = ''; search = ''; notice = 'Account backup restored.';
+    theme = imported.theme ?? 'dark';
     return true;
   }
   function resetStorage() {
@@ -234,7 +287,7 @@
 <div class="app-shell" data-theme={theme}>
   <header class="app-header">
     <nav aria-label="Main navigation"><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button></nav>
-    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError || !!authError}>{authStatus === 'checking' ? 'Checking…' : authStatus === 'cloud' ? (authError ? 'Sync issue' : accountSaveState === 'saving' ? 'Saving…' : 'Saved to account') : authStatus === 'error' ? 'Sign-in issue' : storageError ? 'Save issue' : 'Saved on this device'}</span>{#if authSession}<span class="account-label" title={authSession.user.email ?? authSession.user.name ?? 'Signed in'}>{authSession.user.email ?? authSession.user.name ?? 'Signed in'}</span><button class="secondary" onclick={signOut}>Sign out</button>{/if}<button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Settings</h2><label class="settings-select">Appearance<select value={theme} onchange={(e) => theme = e.currentTarget.value as 'dark' | 'light'}><option value="dark">Dark</option><option value="light">Light</option></select></label><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label></div><button class="secondary library-transfer-button" title="Import or export decks and formats, or back up the full library" onclick={() => transferOpen = true}>Library import / export</button></div>
+    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError || !!authError}>{authStatus === 'checking' ? 'Checking…' : authStatus === 'cloud' ? (authError ? 'Sync issue' : accountSaveState === 'saving' ? 'Saving…' : 'Saved to account') : authStatus === 'error' ? 'Sign-in issue' : storageError ? 'Save issue' : 'Saved on this device'}</span>{#if authSession}<span class="account-label" title={authSession.user.email ?? authSession.user.name ?? 'Signed in'}>{authSession.user.email ?? authSession.user.name ?? 'Signed in'}</span><button class="secondary" onclick={signOut}>Sign out</button>{:else}<button class="secondary" onclick={signIn} disabled={!authConfigured} title={authConfigured ? 'Sign in with Discord' : 'Sign-in is not enabled for this deployment'}>Sign in</button>{/if}<button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Settings</h2><button class="secondary theme-toggle" type="button" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'}>Switch to {theme === 'dark' ? 'light' : 'dark'} mode</button><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label><button class="secondary settings-backup-button" onclick={() => backupOpen = true}>Account backup</button><hr /><div class="settings-danger"><button class="quiet danger" onclick={() => askDestructive('data')}>Delete all data</button>{#if authSession}<button class="quiet danger" onclick={() => askDestructive('account')}>Delete account</button>{/if}</div></div><button class="secondary library-transfer-button" title="Import or export your decks and formats" onclick={() => transferOpen = true}>Library</button></div>
   </header>
   <main class:builder-main={!!selected}>
     {#if authStatus === 'checking'}<section class="auth-loading" aria-live="polite"><span class="loading-dot"></span>Connecting…</section>{:else}
@@ -246,7 +299,7 @@
       <h1 class="sr-only">{selected.name}</h1>
       {#key selected.id}<DeckEditor deck={selected} formats={library.formats} preferredPrintings={library.preferredPrintings ?? {}} preferredView={library.preferredView} onpreferredView={(view) => library.preferredView = view} onpreferred={(name, info) => { const preferences = { ...library.preferredPrintings }; if (info) preferences[normalizeName(name)] = info; else delete preferences[normalizeName(name)]; library.preferredPrintings = preferences; }} onchange={updateDeck} onback={() => selectedId = null} onduplicate={() => { if (selected) duplicate(selected); }} ondelete={() => { if (selected) deleteDeck(selected); }} />{/key}
     {:else if page === 'home'}
-      <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Deck building and card search for custom Magic formats.</p>{#if authSession}<div class="account-welcome"><strong>Signed in as {authSession.user.email ?? authSession.user.name ?? 'your Discord account'}</strong><span>Your decks, formats and preferences sync to your account.</span></div>{:else}<div class="account-welcome"><strong>Save your library to your Discord account</strong><span>Sign-in is optional. Without an account, your library stays on this device.</span>{#if authConfigured}<button class="primary" onclick={signIn}>Continue with Discord</button>{:else}<small>Account sign-in is unavailable right now.</small>{/if}</div>{/if}<div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div><p class="help">{authStatus === 'cloud' ? 'Your library syncs across devices when you sign in. This device keeps its own copy when you sign out.' : 'Your decks and preferences are saved on this device. Use Library import / export to move your collection or keep a backup.'}</p></section>
+      <section class="landing-page"><h1>Format Forge</h1><p class="landing-intro">Deck building and card search for custom Magic formats.</p>{#if !authSession}<div class="account-welcome"><strong>You are a guest.</strong></div>{/if}<div class="transfer-actions"><button class="primary" onclick={() => navigate('decks')}>Your decks</button><button class="secondary" onclick={() => navigate('formats')}>Browse formats</button><a href="https://github.com/ItsSammyM/format-forge" target="_blank" rel="noreferrer">GitHub ↗</a></div></section>
     {:else if page === 'decks'}
       <div class="page-heading"><h1>Decks</h1><div class="page-actions"><button class="secondary" onclick={startDeckImport}>Import deck</button><button class="primary" onclick={startDeck} disabled={!library.formats.length}>+ New deck</button></div></div>
       {#if creating}<section class="panel create-deck"><form onsubmit={createDeck}><label>Deck name<input bind:value={deckName} required maxlength="200" /></label><label>Format<select bind:value={newFormatId}>{#each library.formats as f}<option value={f.id}>{f.name}</option>{/each}</select></label><button class="primary" type="submit">Create deck</button><button class="quiet" type="button" onclick={() => creating = false}>Cancel</button></form></section>{/if}
@@ -267,4 +320,6 @@
   </main>
 </div>
 
-{#if transferOpen}<LibraryTransfer {library} onclose={() => transferOpen = false} onbackup={restoreBackup} onimport={(next, message) => { library = next; notice = message; }} />{/if}
+<dialog bind:this={destructiveDialog} class="destructive-confirm-dialog" onclose={() => { destructiveAction = null; typedConfirmation = ''; }}><form method="dialog" onsubmit={(event) => event.preventDefault()}><h2>{destructiveAction === 'account' ? 'Delete account?' : 'Delete all data?'}</h2><p>{destructiveAction === 'account' ? 'This permanently deletes your account and its saved library. This action cannot be undone.' : authSession ? 'This clears your saved decks, formats, printings, and preferences from your account and this device. Your account will remain.' : 'This clears your saved decks, formats, printings, and preferences from this device.'}</p><label>Type <strong>{destructiveAction === 'account' ? 'DELETE ACCOUNT' : 'DELETE ALL DATA'}</strong> to continue<input autocomplete="off" bind:value={typedConfirmation} /></label><div class="transfer-actions"><button type="button" class="secondary" onclick={() => destructiveDialog.close()}>Cancel</button><button type="button" class="danger-button" disabled={destructiveBusy || typedConfirmation !== (destructiveAction === 'account' ? 'DELETE ACCOUNT' : 'DELETE ALL DATA')} onclick={confirmDestructive}>{destructiveBusy ? 'Deleting…' : destructiveAction === 'account' ? 'Delete account' : 'Delete all data'}</button></div></form></dialog>
+{#if transferOpen}<LibraryTransfer {library} onclose={() => transferOpen = false} onimport={(next, message) => { library = next; notice = message; }} />{/if}
+{#if backupOpen}<AccountBackup {library} onclose={() => backupOpen = false} onrestore={restoreBackup} />{/if}

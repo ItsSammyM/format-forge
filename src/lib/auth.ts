@@ -33,7 +33,12 @@ export async function logout() {
   window.location.reload();
 }
 
-async function libraryRequest(method: 'GET' | 'PUT', library?: Library) {
+export async function deleteAccount() {
+  const result = await authClient.deleteUser();
+  if (result.error) throw new Error('We couldn’t delete your account. Sign out and back in, then try again.');
+}
+
+async function libraryRequest(method: 'GET' | 'PUT' | 'DELETE', library?: Library) {
   const response = await fetch('/api/library', {
     method,
     credentials: 'same-origin',
@@ -60,4 +65,8 @@ export async function saveAccountLibrary(_session: AuthSession, library: Library
     throw new Error('Your library is too large to sync. Export a backup and remove some saved data before trying again.');
   }
   await libraryRequest('PUT', compact);
+}
+
+export async function clearAccountLibrary(_session: AuthSession): Promise<void> {
+  await libraryRequest('DELETE');
 }

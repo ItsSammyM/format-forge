@@ -535,14 +535,7 @@ input::placeholder, textarea::placeholder { color: #6e7d71; }
 .selection-actions { display:flex; gap:5px; margin-bottom:7px; }.selection-actions button { min-height:26px; padding:3px 7px; }
 .import-format-mappings { display:grid; gap:8px; margin:10px 0; }.import-format-mappings h3 { margin:0; font-size:1rem; }
 .library-transfer-dialog > p { margin:10px 0; }
-html[data-theme="dark"] dialog.library-transfer-dialog { color-scheme:dark; color:#e4ebe4; background:#1b251f; border-color:#35443a; }
-html[data-theme="dark"] dialog.library-transfer-dialog::backdrop { background:#050907bb; }
-html[data-theme="dark"] .library-transfer-dialog input,
-html[data-theme="dark"] .library-transfer-dialog select { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
 html[data-theme="dark"] .library-transfer-dialog fieldset { background:#18221c; border-color:#35443a; }
-html[data-theme="dark"] .library-transfer-dialog .secondary { color:#d8e8d9; background:#222e26; border-color:#46574a; }
-html[data-theme="dark"] .library-transfer-dialog .secondary:hover,
-html[data-theme="dark"] .library-transfer-dialog .quiet:hover { background:#2d3b31; }
 @media(max-width:600px) { .library-transfer-button { min-height:29px; padding:5px 7px; font-size:.8rem; }.header-actions { gap:7px; }.library-transfer-dialog { padding:12px; } }
 
 .rule-card-row > .rule-card-name { flex:1; min-width:0; border:0; background:transparent; padding:3px 0; color:var(--green); text-align:left; font:inherit; overflow-wrap:anywhere; white-space:normal; }
@@ -552,10 +545,19 @@ html[data-theme="dark"] .library-transfer-dialog .quiet:hover { background:#2d3b
 .card-zoom-control input[type="range"] { padding:0; min-height:22px; accent-color:var(--green); }
 .header-settings-popover { position:fixed; inset:auto 12px auto auto; top:58px; margin:0; width:min(310px,calc(100vw - 16px)); padding:14px; border:1px solid var(--border); border-radius:10px; background:#fcfdf9; color:inherit; box-shadow:var(--floating-shadow); }
 .header-settings-popover h2 { margin:0 0 12px; font-size:1rem; }
-.header-settings-popover .settings-select { display:grid; gap:5px; margin-bottom:12px; color:var(--muted); font-size:12px; }
-.header-settings-popover .settings-select select { width:100%; }
+.header-settings-popover .theme-toggle { width:100%; margin-bottom:12px; text-align:left; }
 .header-settings-popover .card-zoom-control { display:grid; gap:6px; margin-bottom:12px; }
 .header-settings-popover .checkbox-label { margin:0; }
+.header-settings-popover hr { border:0; border-top:1px solid var(--border); margin:12px 0 8px; }
+.settings-danger { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; }
+.destructive-confirm-dialog { width:min(430px,calc(100vw - 24px)); color:inherit; background:#fcfdf9; border:1px solid #cbd7cc; border-radius:10px; padding:20px; box-shadow:var(--floating-shadow); }
+.destructive-confirm-dialog::backdrop { background:#203a2859; }
+.destructive-confirm-dialog h2 { margin:0 0 8px; font-size:1.15rem; }
+.destructive-confirm-dialog p { color:var(--muted); line-height:1.45; }
+.destructive-confirm-dialog label { display:grid; gap:6px; margin:16px 0; }
+.destructive-confirm-dialog input { width:100%; }
+.danger-button { border:1px solid #a34432; border-radius:5px; padding:8px 11px; background:#a34432; color:#fff; font:inherit; cursor:pointer; }
+.danger-button:disabled { opacity:.5; cursor:not-allowed; }
 .landing-page { max-width:760px; margin:clamp(22px,7vh,70px) auto; border-left:3px solid #89ad90; padding:8px 0 8px 20px; }
 .landing-page h1 { font-size:clamp(30px,5vw,46px); margin-bottom:8px; color:var(--green); }
 .landing-intro { font-size:19px; }
@@ -622,7 +624,23 @@ html[data-theme="dark"] .library-transfer-dialog .quiet:hover { background:#2d3b
 .deck-transfer-export-actions { justify-content:flex-start; }
 @media (max-width:700px) { .deck-transfer { top:70px; left:10px; width:calc(100vw - 20px); height:min(620px,calc(100dvh - 90px)); max-height:calc(100dvh - 90px); } .deck-transfer-column { grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto minmax(0,1fr); grid-template-areas:"toolbar" "help" "textarea"; } .deck-transfer-column > textarea { height:auto; min-height:220px; } .deck-transfer-toolbar { flex-direction:row; align-items:center; } .deck-transfer-toolbar > select { min-height:40px; font-size:16px; } }
 
-html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; background:#111814; color:#e4ebe4; }
+/* Native dialogs enter the browser top layer and no longer inherit .app-shell selectors. Keep their base appearance theme-aware at the document root. */
+html dialog { color-scheme:light; color:#25382f; background:#fcfdf9; border-color:#cbd7cc; }
+html dialog input,
+html dialog select,
+html dialog textarea { color:#25382f; background:#fff; border-color:#cbd7cc; }
+html[data-theme="dark"] { --green:#9dc5a6; --border:#35443a; --muted:#a4b0a5; color-scheme:dark; background:#111814; color:#e4ebe4; }
+html[data-theme="dark"] body { color-scheme:dark; background:#111814; color:#e4ebe4; }
+/* New dialogs get the same theme without requiring component-specific rules. */
+html[data-theme="dark"] dialog { color-scheme:dark; color:#e4ebe4; background:#1b251f; border-color:#35443a; }
+html[data-theme="dark"] dialog::backdrop { background:#050907bb; }
+html[data-theme="dark"] dialog input,
+html[data-theme="dark"] dialog select,
+html[data-theme="dark"] dialog textarea { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
+html[data-theme="dark"] dialog .secondary { color:#d8e8d9; background:#222e26; border-color:#46574a; }
+html[data-theme="dark"] dialog .secondary:hover,
+html[data-theme="dark"] dialog .quiet:hover { background:#2d3b31; }
+html[data-theme="dark"] dialog .section-heading { border-color:#35443a; }
 .app-shell[data-theme="dark"] { --green:#9dc5a6; --border:#35443a; --muted:#a4b0a5; color:#e4ebe4; background:#111814; min-height:100vh; }
 .app-shell[data-theme="dark"] .app-header,
 .app-shell[data-theme="dark"] .panel,
@@ -634,7 +652,6 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .app-shell[data-theme="dark"] .primer-window,
 .app-shell[data-theme="dark"] .lands-window,
 .app-shell[data-theme="dark"] .deck-transfer,
-.app-shell[data-theme="dark"] .library-transfer-dialog,
 .app-shell[data-theme="dark"] .format-check .check-content,
 .app-shell[data-theme="dark"] .deck-actions-menu > div,
 .app-shell[data-theme="dark"] .backup-menu > div { color:#e4ebe4; background:#1b251f; border-color:#35443a; }
@@ -688,7 +705,6 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .app-shell[data-theme="dark"] .mana-curve-bar { background:#8abf91; }
 .app-shell[data-theme="dark"] .set-chip { color:#d1e7d1; }
 .app-shell[data-theme="dark"] .modal-backdrop { background:#050907bb; }
-.app-shell[data-theme="dark"] dialog::backdrop { background:#050907bb; }
 .app-shell[data-theme="dark"] .builder-details,
 .app-shell[data-theme="dark"] .board-heading,
 .app-shell[data-theme="dark"] .search-controls,
@@ -704,7 +720,6 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .app-shell[data-theme="dark"] .image-board .entry-count,
 .app-shell[data-theme="dark"] .deck-toolbar .format-check,
 .app-shell[data-theme="dark"] .deck-toolbar .format-check:not(.has-issues) { background:#202c24; border-color:#3a4a3e; color:#d4e3d4; }
-.app-shell[data-theme="dark"] .header-settings-popover select { color:#e4ebe4; background:#141d17; border-color:#425248; color-scheme:dark; }
 .app-shell[data-theme="dark"] .deck-toolbar .format-check.has-issues { background:#382d1e; border-color:#6b5633; color:#e6cb8c; }
 .app-shell[data-theme="dark"] .deck-toolbar .format-check .check-content,
 .app-shell[data-theme="dark"] .deck-actions-menu > div,
