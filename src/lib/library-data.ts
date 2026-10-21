@@ -18,5 +18,6 @@ export function compactLibraryData(library: Library, preserveDefaultsVersion = f
     ...(preferredView ? { preferredView } : {}),
     ...(preferredPrintings ? { preferredPrintings } : {}),
     ...(library.theme ? { theme: library.theme } : {}),
+    ...(library.accentColor && library.accentColor !== 'green' ? { accentColor: library.accentColor } : {}),
   };
 }

@@ -42,7 +42,8 @@ export interface BoardView { sort: CardSort; group: CardSort | 'none'; direction
 export interface DeckLayout { workspace?: number; boards?: number; auxiliary?: number; searchControls?: number; zoneSplits?: Partial<Record<Zone, number>>; hiddenZones?: UISection[]; landsOpen?: boolean; special?: Partial<Record<Zone, number>> }
 export interface CardEntry { id: string; name: string; quantity: number; zone: Zone; info?: CardInfo; tags?: string[] }
 export interface Deck { id: string; name: string; formatId: string; notes: string; cards: CardEntry[]; updatedAt: string; views?: Partial<Record<Zone, BoardView>>; layout?: DeckLayout; tags?: string[] }
-export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView; theme?: 'dark' | 'light' }
+export type AccentColor = 'green' | 'red' | 'purple' | 'yellow' | 'orange' | 'blue' | 'monochrome';
+export interface Library { version: 1; formats: Format[]; decks: Deck[]; defaultsVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12; preferredPrintings?: Record<string, CardInfo>; preferredView?: BoardView; theme?: 'dark' | 'light'; accentColor?: AccentColor }
 export const STORAGE_KEY = 'mtg-format-forge.library.v1';
 export const normalizeName = (name: string) => name.trim().toLocaleLowerCase('en-US');
 export const ruleCardName = (name: string) => normalizeName(name.split(' // ')[0]);
@@ -483,11 +484,13 @@ export function parseLibrary(raw: string): Library {
   if (value.defaultsVersion !== undefined && value.defaultsVersion !== 1 && value.defaultsVersion !== 2 && value.defaultsVersion !== 3 && value.defaultsVersion !== 4 && value.defaultsVersion !== 5 && value.defaultsVersion !== 6 && value.defaultsVersion !== 7 && value.defaultsVersion !== 8 && value.defaultsVersion !== 9 && value.defaultsVersion !== 10 && value.defaultsVersion !== 11 && value.defaultsVersion !== 12) return fail();
   const preferences: Record<string, CardInfo> = {};
   if (value.theme !== undefined && value.theme !== 'dark' && value.theme !== 'light') return fail();
+  const accentColors = ['green', 'red', 'purple', 'yellow', 'orange', 'blue', 'monochrome'];
+  if (value.accentColor !== undefined && !accentColors.includes(value.accentColor as string)) return fail();
   if (value.preferredPrintings !== undefined) {
     if (!object(value.preferredPrintings)) return fail();
     for (const [key, rawInfo] of Object.entries(value.preferredPrintings)) { const printing = info(rawInfo); if (!name(key) || !printing?.scryfallId) return fail(); Object.defineProperty(preferences, normalizeName(key), { value: printing, enumerable: true, writable: true, configurable: true }); }
   }
-  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}), ...(value.theme !== undefined ? { theme: value.theme } : {}) };
+  return { version: 1, formats, decks, ...(value.preferredView !== undefined ? { preferredView: readView(value.preferredView) } : {}), ...(value.defaultsVersion !== undefined ? { defaultsVersion: value.defaultsVersion as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 } : {}), ...(value.preferredPrintings !== undefined ? { preferredPrintings: preferences } : {}), ...(value.theme !== undefined ? { theme: value.theme } : {}), ...(value.accentColor !== undefined && value.accentColor !== 'green' ? { accentColor: value.accentColor as AccentColor } : {}) };
 }
 
 export interface ValuedCard { name: string; value: number }

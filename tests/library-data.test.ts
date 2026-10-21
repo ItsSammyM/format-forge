@@ -25,11 +25,14 @@ test('compact library data retains user formats, decks, and preferences', () => 
   library.decks.push(deck);
   library.preferredView = preferredView;
   library.preferredPrintings = { 'example card': { scryfallId: 'id', set: 'abc', collectorNumber: '1', typeLine: 'Creature', oracleText: '', colorIdentity: [], manaCost: '' } };
+  library.accentColor = 'blue';
   const compact = compactLibraryData(library);
 
   assert.deepEqual(compact.decks, [deck]);
   assert.equal(compact.preferredView, preferredView);
   assert.equal(compact.preferredPrintings, library.preferredPrintings);
+  assert.equal(compact.accentColor, 'blue');
+  assert.equal('accentColor' in compactLibraryData({ ...library, accentColor: 'green' }), false);
 });
 
 test('restoring compact data re-adds referenced built-in formats before validation', () => {

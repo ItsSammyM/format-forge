@@ -10,13 +10,22 @@
   import LibraryCard from './components/LibraryCard.svelte';
   import { blankFormat, deckSize, sideboardSize, createLibrary, formatText, deckText, parseDeckText, parseFormatText, normalizeName, validateDeck, STORAGE_KEY } from './lib/model';
   import { addDefaultFormats, isDefaultFormat } from './lib/default-formats';
-  import type { BoardView, Deck, Format } from './lib/model';
+  import type { AccentColor, BoardView, Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
   import { DEFAULT_VIEW } from './lib/deck-view';
   import { authConfigured, clearAccountLibrary, deleteAccount, loadAccountLibrary, loginWithDiscord, logout, saveAccountLibrary, startAuth } from './lib/auth';
   import type { AuthSession } from './lib/auth';
 
   const THEME_KEY = 'format-forge.theme';
+  const accentChoices: { id: AccentColor; name: string; swatch: string }[] = [
+    { id: 'red', name: 'Red', swatch: '#a43b4b' },
+    { id: 'orange', name: 'Orange', swatch: '#b35917' },
+    { id: 'yellow', name: 'Yellow', swatch: '#a27c0a' },
+    { id: 'green', name: 'Green', swatch: '#234e40' },
+    { id: 'blue', name: 'Blue', swatch: '#286899' },
+    { id: 'purple', name: 'Purple', swatch: '#684595' },
+    { id: 'monochrome', name: 'Black / white', swatch: 'linear-gradient(135deg, #242424 50%, #fff 50%)' },
+  ];
   function readTheme(): 'dark' | 'light' {
     try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
   }
@@ -110,6 +119,7 @@
   });
   $effect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.accent = library.accentColor ?? 'green';
     library.theme = theme;
   });
 
@@ -132,6 +142,7 @@
             || firstAccountLibrary.formats.some(format => !isDefaultFormat(format.id))
             || !!firstAccountLibrary.preferredView
             || firstAccountLibrary.theme === 'light'
+            || !!firstAccountLibrary.accentColor
             || Object.keys(firstAccountLibrary.preferredPrintings ?? {}).length > 0;
           if (hasLocalData) await saveAccountLibrary(auth.session, firstAccountLibrary);
           if (!active) return;
@@ -200,6 +211,10 @@
 
   function navigate(next: 'home' | 'decks' | 'formats') { page = next; selectedId = null; editing = null; creating = false; notice = ''; }
   function updateViewPreferences(patch: Partial<BoardView>) { library.preferredView = { ...(library.preferredView ?? DEFAULT_VIEW), ...patch }; }
+  function setAccentColor(color: AccentColor) {
+    if (color === 'green') delete library.accentColor;
+    else library.accentColor = color;
+  }
   function newFormat() {
     editing = blankFormat();
   }
@@ -284,10 +299,10 @@
   }
 </script>
 
-<div class="app-shell" data-theme={theme}>
+<div class="app-shell" data-theme={theme} data-accent={library.accentColor ?? 'green'}>
   <header class="app-header">
     <nav aria-label="Main navigation"><button class:active={page === 'home'} onclick={() => navigate('home')}>Home</button><button class:active={page === 'formats'} onclick={() => navigate('formats')}>Formats <span>{library.formats.length}</span></button><button class:active={page === 'decks'} onclick={() => navigate('decks')}>Decks <span>{library.decks.length}</span></button></nav>
-    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError || !!authError}>{authStatus === 'checking' ? 'Checking…' : authStatus === 'cloud' ? (authError ? 'Sync issue' : accountSaveState === 'saving' ? 'Saving…' : 'Saved to account') : authStatus === 'error' ? 'Sign-in issue' : storageError ? 'Save issue' : 'Saved on this device'}</span>{#if authSession}<span class="account-label" title={authSession.user.email ?? authSession.user.name ?? 'Signed in'}>{authSession.user.email ?? authSession.user.name ?? 'Signed in'}</span><button class="secondary" onclick={signOut}>Sign out</button>{:else}<button class="secondary" onclick={signIn} disabled={!authConfigured} title={authConfigured ? 'Sign in with Discord' : 'Sign-in is not enabled for this deployment'}>Sign in</button>{/if}<button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Settings</h2><button class="secondary theme-toggle" type="button" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'}>Switch to {theme === 'dark' ? 'light' : 'dark'} mode</button><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label><button class="secondary settings-backup-button" onclick={() => backupOpen = true}>Account backup</button><hr /><div class="settings-danger"><button class="quiet danger" onclick={() => askDestructive('data')}>Delete all data</button>{#if authSession}<button class="quiet danger" onclick={() => askDestructive('account')}>Delete account</button>{/if}</div></div><button class="secondary library-transfer-button" title="Import or export your decks and formats" onclick={() => transferOpen = true}>Library</button></div>
+    <div class="header-actions"><span class="save-status" class:storage-failed={!!storageError || !!authError}>{authStatus === 'checking' ? 'Checking…' : authStatus === 'cloud' ? (authError ? 'Sync issue' : accountSaveState === 'saving' ? 'Saving…' : 'Saved to account') : authStatus === 'error' ? 'Sign-in issue' : storageError ? 'Save issue' : 'Saved on this device'}</span>{#if authSession}<span class="account-label" title={authSession.user.email ?? authSession.user.name ?? 'Signed in'}>{authSession.user.email ?? authSession.user.name ?? 'Signed in'}</span><button class="secondary" onclick={signOut}>Sign out</button>{:else}<button class="secondary" onclick={signIn} disabled={!authConfigured} title={authConfigured ? 'Sign in with Discord' : 'Sign-in is not enabled for this deployment'}>Sign in</button>{/if}<button class="secondary" popovertarget="display-settings">Settings</button><div id="display-settings" popover="auto" class="header-settings-popover"><h2>Settings</h2><button class="secondary theme-toggle" type="button" onclick={() => theme = theme === 'dark' ? 'light' : 'dark'}>Switch to {theme === 'dark' ? 'light' : 'dark'} mode</button><fieldset class="accent-settings"><legend>Accent color</legend><div class="accent-color-options" role="group" aria-label="Accent color">{#each accentChoices as choice (choice.id)}<button type="button" class:active={(library.accentColor ?? 'green') === choice.id} aria-label={choice.name} aria-pressed={(library.accentColor ?? 'green') === choice.id} title={choice.name} style={`--accent-swatch:${choice.swatch}`} onclick={() => setAccentColor(choice.id)}></button>{/each}</div></fieldset><label class="card-zoom-control">Card size · {library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize}px<input aria-label="Card image size" type="range" min="100" max="320" step="10" value={library.preferredView?.cardSize ?? DEFAULT_VIEW.cardSize} oninput={(e) => updateViewPreferences({ cardSize: Number(e.currentTarget.value) })} /></label><label class="checkbox-label"><input type="checkbox" checked={library.preferredView?.alwaysShowCardNames ?? false} onchange={(e) => updateViewPreferences({ alwaysShowCardNames: e.currentTarget.checked })} />Always show card names</label><div class="settings-actions"><div class="settings-data-actions"><button class="secondary settings-backup-button" onclick={() => backupOpen = true}>Account backup</button><button class="quiet danger" onclick={() => askDestructive('data')}>Delete all data</button></div>{#if authSession}<button class="quiet danger settings-delete-account" onclick={() => askDestructive('account')}>Delete account</button>{/if}</div></div><button class="secondary library-transfer-button" title="Import or export your decks and formats" onclick={() => transferOpen = true}>Library</button></div>
   </header>
   <main class:builder-main={!!selected}>
     {#if authStatus === 'checking'}<section class="auth-loading" aria-live="polite"><span class="loading-dot"></span>Connecting…</section>{:else}

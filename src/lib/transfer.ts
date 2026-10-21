@@ -38,7 +38,7 @@ export function parseTransfer(raw: string): TransferFile {
   const value = JSON.parse(raw);
   if (value?.kind !== 'format-forge-transfer') {
     // Keep older standalone format files usable.
-    if (value?.kind === undefined && value?.version === 1 && Array.isArray(value.formats) && Array.isArray(value.decks) && !value.decks.length && value.defaultsVersion === undefined && value.preferredPrintings === undefined && value.preferredView === undefined && value.theme === undefined) {
+    if (value?.kind === undefined && value?.version === 1 && Array.isArray(value.formats) && Array.isArray(value.decks) && !value.decks.length && value.defaultsVersion === undefined && value.preferredPrintings === undefined && value.preferredView === undefined && value.theme === undefined && value.accentColor === undefined) {
       const library = parseLibrary(raw), formats = library.formats.filter(format => !builtInFormatIds.has(format.id));
       if (!formats.length) throw new Error('Built-in formats are available in the app and cannot be imported as custom formats.');
       return { kind: 'format-forge-transfer', version: 1, scope: 'formats', decks: [], formats, formatRefs: [] };
@@ -46,7 +46,7 @@ export function parseTransfer(raw: string): TransferFile {
     throw new Error('Choose a deck or format export. Account backups use Restore account backup.');
   }
   const fail = (): never => { throw new Error('This is not a valid deck/format transfer file.'); };
-  if (value.version !== 1 || !['decks', 'formats', 'both'].includes(value.scope) || !Array.isArray(value.decks) || !Array.isArray(value.formats) || !Array.isArray(value.formatRefs) || value.decks.length > 10000 || value.formatRefs.length > 1000 || value.preferredPrintings !== undefined || value.preferredView !== undefined || value.defaultsVersion !== undefined || value.theme !== undefined || value.accountPreferences !== undefined) return fail();
+  if (value.version !== 1 || !['decks', 'formats', 'both'].includes(value.scope) || !Array.isArray(value.decks) || !Array.isArray(value.formats) || !Array.isArray(value.formatRefs) || value.decks.length > 10000 || value.formatRefs.length > 1000 || value.preferredPrintings !== undefined || value.preferredView !== undefined || value.defaultsVersion !== undefined || value.theme !== undefined || value.accentColor !== undefined || value.accountPreferences !== undefined) return fail();
   if (value.scope === 'decks' && value.formats.length || value.scope === 'formats' && value.decks.length || !value.decks.length && !value.formats.length) return fail();
   const refs = new Map<string, string>();
   for (const ref of value.formatRefs) {
