@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ManaCost from './ManaCost.svelte';
   import ManaSymbols from './ManaSymbols.svelte';
   import { cardPoints, countCards, CARD_SORTS, CARD_DETAILS, normalizeName, setLegality, deckCardStatuses, ZONE_NAMES } from '../lib/model';
@@ -16,7 +17,7 @@
   let menuLeft = $state(0), menuTop = $state(0);
   function positionMenu(event: ToggleEvent) { if (event.newState === 'open') { const rect = viewButton.getBoundingClientRect(); menuLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 280)); menuTop = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 250)); } }
   const uid = $props.id();
-  let root: HTMLElement, resizing = $state<number | null>(null), startY = 0, startHeight = 0;
+  let root: HTMLElement, groupContainer: HTMLDivElement, resizing = $state<number | null>(null), startY = 0, startHeight = 0, groupWidth = $state(0);
   const view = $derived({ ...boardView(deck.views?.[zone] ?? defaultView), cardSize, alwaysShowCardNames });
   const details = $derived((view.details ?? ['manaCost', 'tags']).map(k => k === 'colors' ? 'manaCost' : k));
   const statuses = $derived(deckCardStatuses(deck, format));
@@ -24,6 +25,25 @@
   const zoneMdfcs = $derived(mdfcLandCount(zoneCards));
   const zoneLands = $derived(frontLandCount(zoneCards));
   const groups = $derived(groupCards(deck.cards.filter(c => c.zone === zone), view, format));
+  const cardMinWidth = $derived(view.display === 'cards' ? cardSize : view.display === 'compact' ? 245 : 270);
+  const cardGap = $derived(view.display === 'cards' ? 4 : view.display === 'compact' ? 8 : 10);
+  const cardsPerRow = $derived(Math.max(1, Math.floor((groupWidth + cardGap) / (cardMinWidth + cardGap))));
+  const groupsPerRow = $derived(cardsPerRow);
+  function groupNeedsFullWidth(index: number) {
+    if (view.group === 'none') return false;
+    if (groups[index].cards.length > cardsPerRow) return true;
+    if (groupsPerRow === 1) return false;
+    let start = index, end = index;
+    while (start > 0 && groups[start - 1].cards.length <= cardsPerRow) start--;
+    while (end + 1 < groups.length && groups[end + 1].cards.length <= cardsPerRow) end++;
+    return index === end && (end - start + 1) % groupsPerRow === 1;
+  }
+  onMount(() => {
+    const observer = new ResizeObserver(() => groupWidth = groupContainer.clientWidth);
+    observer.observe(groupContainer);
+    groupWidth = groupContainer.clientWidth;
+    return () => observer.disconnect();
+  });
   function resizeStart(event: PointerEvent) {
     event.preventDefault(); (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     startY = event.clientY; startHeight = root.getBoundingClientRect().height; resizing = startHeight;
@@ -32,10 +52,10 @@
 <section bind:this={root} class="board" class:compact-board={view.display === 'compact'} class:image-board={view.display === 'cards'} class:show-card-names={alwaysShowCardNames} class:drop-highlight={highlighted} data-zone={zone} aria-label={ZONE_NAMES[zone]} style:--deck-card-size={`${cardSize}px`} style:height={height === undefined ? '100%' : `${resizing ?? height}px`} ondragover={(e) => ondragover(e, zone)} ondragleave={ondragleave} ondrop={ondrop}>
   <div class="board-heading"><h2>{ZONE_NAMES[zone]}</h2><button class="zone-view-button" bind:this={viewButton} popovertarget={`${uid}-view`}>View ▾</button><span class="zone-count">{countCards(deck, zone)}</span><button class="section-close" aria-label={`Close ${ZONE_NAMES[zone]}`} title={`Close ${ZONE_NAMES[zone]}`} onclick={onclose}>×</button></div>
   <div bind:this={menu} id={`${uid}-view`} popover="auto" class="board-view-popover" onbeforetoggle={positionMenu} style:left={`${menuLeft}px`} style:top={`${menuTop}px`}><label>Display<select value={view.display ?? 'compact'} onchange={(e) => onview({ ...view, display: e.currentTarget.value as BoardView['display'] })}><option value="compact">Super compact</option><option value="cards">Card grid</option></select></label><div class="board-view-controls"><label>Sort<select value={view.sort} onchange={(e) => onview({ ...view, sort: e.currentTarget.value as CardSort })}>{#each CARD_SORTS as key}<option value={key}>{SORT_LABELS[key]}</option>{/each}</select></label><label>Group<select value={view.group} onchange={(e) => onview({ ...view, group: e.currentTarget.value as BoardView['group'] })}><option value="none">No grouping</option>{#each CARD_SORTS as key}<option value={key}>{SORT_LABELS[key]}</option>{/each}</select></label><label>Direction<select value={view.direction} onchange={(e) => onview({ ...view, direction: e.currentTarget.value as BoardView['direction'] })}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></div><fieldset><legend>Show in card list</legend>{#each CARD_DETAILS as key}<label class="checkbox-label"><input type="checkbox" checked={details.includes(key)} onchange={(e) => { const current = details; onview({ ...view, details: e.currentTarget.checked ? [...new Set([...current, key])] : current.filter(k => k !== key) }); }} />{key === 'manaCost' ? 'Mana cost' : key === 'points' ? 'Points per copy' : SORT_LABELS[key]}</label>{/each}<label class="checkbox-label"><input type="checkbox" checked={view.showPrintings ?? false} onchange={(e) => onview({ ...view, showPrintings: e.currentTarget.checked })} />Printing details</label></fieldset></div>
-  <div class="board-cards"><div class="board-groups">
+  <div class="board-cards"><div bind:this={groupContainer} class="board-groups" style:--group-card-width={`${cardMinWidth}px`} style:--group-card-gap={`${cardGap}px`}>
     {#if !groups.length}<p class="board-empty">No cards</p>{/if}
-    {#each groups as group (group.key)}
-      <div class="board-group">
+    {#each groups as group, index (group.key)}
+      <div class="board-group" class:group-needs-width={groupNeedsFullWidth(index)}>
       {#if view.group !== 'none'}<div class="card-group-heading"><span>{#if view.group === 'type' && group.label === 'Land'}Lands{:else if group.symbols}<ManaSymbols symbols={group.symbols} />{:else}{group.label}{/if}</span><span>{#if view.group === 'type' && group.label === 'Land'}{zoneLands}{#if zoneMdfcs} (+{zoneMdfcs} MDFCs){/if}{:else}{group.count}{/if}</span></div>{/if}
       <div class="deck-list" class:deck-image-grid={view.display === 'cards'}>
       {#each group.cards as card (card.id)}

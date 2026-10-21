@@ -790,9 +790,10 @@ html[data-theme="dark"], html[data-theme="dark"] body { color-scheme:dark; backg
 .hide-card-names .result-card-name { display:none; }
 .image-board .entry-count { top:24%; left:5px; }
 .image-board .row-quantity-buttons { top:24%; right:5px; }
-.board-groups { display:grid; grid-auto-flow:row; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); align-content:start; align-items:start; gap:8px 12px; }
+.board-groups { display:grid; grid-auto-flow:row; grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--group-card-width,320px)),1fr)); align-content:start; align-items:start; column-gap:var(--group-card-gap,12px); row-gap:8px; }
 .land-card-grid { width:100%; box-sizing:border-box; }
 .board-group { min-width:0; }
+.board-group.group-needs-width { grid-column:1/-1; }
 .rule-card-groups { display:grid; grid-auto-flow:row; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); align-items:start; gap:14px; }
 .rule-card-group { min-width:0; }
 .rule-card-groups { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:10px 16px; }
