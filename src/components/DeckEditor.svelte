@@ -10,7 +10,7 @@
   import { DEFAULT_VIEW } from '../lib/deck-view';
   import { addCard, countCards, deckSize, sideboardSize, deckText, moveCard, normalizeName, parseDeckText, setLegality, validateDeck, visibleZones, setCardTags, replaceDeckText, changePrinting, deckPoints, isPointerDrag, normalizeTags, tournamentOnly, tournamentEligibility, officialLegality, hasReleaseRange, OFFICIAL_FORMAT_NAMES, ZONE_NAMES, ZONES } from '../lib/model';
   import type { BoardView, CardEntry, CardInfo, Deck, DeckLayout, ExportStyle, Format, Zone, UISection } from '../lib/model';
-  import { resolveCard } from '../lib/scryfall';
+  import { resolveCards } from '../lib/scryfall';
   import { download } from '../lib/storage';
   let { deck, formats, onchange, onback, onduplicate, ondelete, preferredPrintings = {}, onpreferred, preferredView, onpreferredView }: { deck: Deck; formats: Format[]; onchange: (deck: Deck) => void; onback: () => void; onduplicate: () => void; ondelete: () => void; preferredPrintings?: Record<string, CardInfo>; onpreferred: (name: string, info?: CardInfo) => void; preferredView?: BoardView; onpreferredView: (view: BoardView) => void } = $props();
   const history = new DeckHistory();
@@ -74,23 +74,34 @@
         || info.manaValue === undefined || info.colors === undefined || info.priceUSD === undefined || info.rarity === undefined
         || needsHistory && (hasReleaseRange(format) && info.printReleases === undefined || !info.setsComplete || stale);
     });
+    const pending: CardEntry[] = [];
     for (const entry of jobs) {
-      if (resolving >= 4) break;
       const key = `${entry.id}:${entry.info?.scryfallId}:${needsSets}:${!!format.gameplayOnly}:${format.officialFormat ?? ''}:${format.releasedAfter ?? ''}:${format.releasedBefore ?? ''}:${retry}`;
       if (attempts.has(key)) continue;
       attempts.add(key);
       // Read a snapshot so async work never captures a mutable Svelte proxy.
-      const snapshot: CardEntry = JSON.parse(JSON.stringify(entry));
-      untrack(() => { void enrich(snapshot, needsSets); });
+      pending.push(JSON.parse(JSON.stringify(entry)) as CardEntry);
     }
+    if (pending.length) untrack(() => { void enrichBatch(pending, needsSets); });
   });
-  async function enrich(entry: CardEntry, needsSets: boolean) {
-    resolving++;
+  async function enrichBatch(entries: CardEntry[], needsSets: boolean) {
+    resolving += entries.length;
     try {
-      const info = await resolveCard(entry, needsSets, metadataController.signal, format);
-      if (!disposed && deck.cards.some(c => c.id === entry.id)) { history.refreshMetadata(entry.id, entry.info, info); onchange({ ...deck, cards: deck.cards.map(c => c.id === entry.id && normalizeName(c.name) === normalizeName(entry.name) && c.info?.scryfallId === entry.info?.scryfallId ? { ...c, info } : c) }); }
-    } catch (e) { if (!disposed) lookupError = `${entry.name}: ${e instanceof Error ? e.message : 'Card data could not be resolved.'}`; }
-    finally { if (!disposed) resolving--; }
+      const resolved = await resolveCards(entries, needsSets, metadataController.signal, format);
+      if (!disposed) {
+        const updates = new Map(entries.map(entry => [entry.id, { entry, info: resolved.get(entry.id) }] as const));
+        let changed = false;
+        const cards = deck.cards.map(card => {
+          const update = updates.get(card.id);
+          if (!update?.info || normalizeName(card.name) !== normalizeName(update.entry.name) || card.info?.scryfallId !== update.entry.info?.scryfallId) return card;
+          history.refreshMetadata(card.id, card.info, update.info); changed = true;
+          return { ...card, info: update.info };
+        });
+        if (changed) onchange({ ...deck, cards });
+        lookupError = '';
+      }
+    } catch (e) { if (!disposed) lookupError = e instanceof Error ? e.message : 'Card data could not be resolved.'; }
+    finally { if (!disposed) resolving = Math.max(0, resolving - entries.length); }
   }
   function layout(patch: DeckLayout) { onchange({ ...deck, layout: { ...deck.layout, ...patch } }); }
   function view(zone: Zone, value: BoardView) { onchange({ ...deck, views: { ...deck.views, [zone]: value } }); onpreferredView(value); }

@@ -88,7 +88,7 @@ test('release-date resolution reuses paginated printing lookups; qualifying sele
   let calls = 0;
   const fetch = mock.method(globalThis, 'fetch', async input => {
     calls++; const url = new URL(String(input));
-    const data = url.pathname === '/cards/named' ? raw : { data: [{ ...raw, id: 'older-date-fixture', released_at: '2015-07-17' }], has_more: !url.searchParams.has('page'), next_page: 'https://api.scryfall.com/cards/search?q=oracleid:date-oracle&page=2' };
+    const data = url.pathname === '/cards/collection' ? { data: [raw], not_found: [] } : { data: [{ ...raw, id: 'older-date-fixture', released_at: '2015-07-17' }], has_more: !url.searchParams.has('page'), next_page: 'https://api.scryfall.com/cards/search?q=oracleid:date-oracle&page=2' };
     return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
   });
   try {

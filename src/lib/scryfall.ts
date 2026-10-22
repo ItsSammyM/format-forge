@@ -13,6 +13,7 @@ export interface ScryfallCard {
 }
 export interface ScryfallSet { code: string; name: string; released_at?: string }
 export interface SearchResult { data: ScryfallCard[]; total_cards: number; has_more: boolean; next_page?: string }
+interface CollectionResult { data: ScryfallCard[]; not_found: unknown[] }
 export interface SearchFilters {
   name: string; type: string; typeMode: 'all' | 'any'; excludeType: string; oracle: string;
   colors: string; colorMode: '<=' | '>=' | '='; identity: string; identityMode: '<=' | '>=' | '=';
@@ -170,7 +171,7 @@ async function printingSets(card: ScryfallCard, signal?: AbortSignal): Promise<{
   if (signal) printingCache.set(key, { at: Date.now(), promise: Promise.resolve(result) });
   return result;
 }
-export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<CardInfo> {
+async function resolveCardFallback(entry: CardEntry, needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<CardInfo> {
   signal?.throwIfAborted();
   let card: ScryfallCard;
   if (entry.info?.scryfallId) card = await request<ScryfallCard>(`https://api.scryfall.com/cards/${encodeURIComponent(entry.info.scryfallId)}`, signal);
@@ -188,6 +189,80 @@ export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?:
   const info = cardInfo(card);
   const needsHistory = needsSets && (!eligibilityFormat || setLegality({ ...entry, info }, eligibilityFormat) === 'unknown' || !eligibilityFormat.whitelistOnly && !!eligibilityFormat.bannedRarities?.length);
   return needsHistory ? { ...info, ...await printingSets(card, signal), setsComplete: true, checkedAt: new Date().toISOString() } : info;
+}
+
+type CollectionIdentifier = { id: string } | { set: string; collector_number: string } | { name: string };
+const COLLECTION_URL = 'https://api.scryfall.com/cards/collection';
+function collectionIdentifier(entry: CardEntry): CollectionIdentifier {
+  if (entry.info?.scryfallId) return { id: entry.info.scryfallId };
+  if (entry.info?.set && entry.info.collectorNumber) return { set: entry.info.set, collector_number: entry.info.collectorNumber };
+  return { name: entry.name };
+}
+function identifierCacheUrl(identifier: CollectionIdentifier): string {
+  if ('id' in identifier) return `https://api.scryfall.com/cards/${encodeURIComponent(identifier.id)}`;
+  if ('set' in identifier) return `https://api.scryfall.com/cards/${encodeURIComponent(identifier.set)}/${encodeURIComponent(identifier.collector_number)}`;
+  return `https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: identifier.name })}`;
+}
+function cardMatchesIdentifier(card: ScryfallCard, identifier: CollectionIdentifier): boolean {
+  if ('id' in identifier) return card.id === identifier.id;
+  if ('set' in identifier) return card.set.toLowerCase() === identifier.set.toLowerCase() && card.collector_number === identifier.collector_number;
+  const expected = normalizeName(identifier.name);
+  return [card.name, ...card.card_faces?.map(face => face.name) ?? []].some(name => normalizeName(name) === expected);
+}
+async function enrichResolvedCard(entry: CardEntry, card: ScryfallCard, needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<CardInfo> {
+  signal?.throwIfAborted();
+  const info = cardInfo(card);
+  const needsHistory = needsSets && (!eligibilityFormat || setLegality({ ...entry, info }, eligibilityFormat) === 'unknown' || !eligibilityFormat.whitelistOnly && !!eligibilityFormat.bannedRarities?.length);
+  return needsHistory ? { ...info, ...await printingSets(card, signal), setsComplete: true, checkedAt: new Date().toISOString() } : info;
+}
+
+/** Resolve a deck with Scryfall's collection endpoint (75 identifiers per request). */
+export async function resolveCards(entries: CardEntry[], needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<Map<string, CardInfo>> {
+  const resolved = new Map<string, CardInfo>();
+  const identifiers = new Map<string, { identifier: CollectionIdentifier; entries: CardEntry[] }>();
+  for (const entry of entries) {
+    const identifier = collectionIdentifier(entry), key = JSON.stringify(identifier);
+    const group = identifiers.get(key) ?? { identifier, entries: [] };
+    group.entries.push(entry); identifiers.set(key, group);
+  }
+  const unique = [...identifiers.values()], missing: typeof unique = [];
+  for (const item of unique) {
+    signal?.throwIfAborted();
+    let cached: ScryfallCard | undefined;
+    try { cached = await scryfallClient.cachedRequest<ScryfallCard>(identifierCacheUrl(item.identifier)); }
+    catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+    if (!cached || !cardMatchesIdentifier(cached, item.identifier)) { missing.push(item); continue; }
+    const info = await enrichResolvedCard(item.entries[0], cached, needsSets, signal, eligibilityFormat);
+    for (const entry of item.entries) resolved.set(entry.id, info);
+  }
+  for (let start = 0; start < missing.length; start += 75) {
+    signal?.throwIfAborted();
+    const batch = missing.slice(start, start + 75);
+    const result = await scryfallClient.request<CollectionResult>(COLLECTION_URL, signal, {
+      method: 'POST', body: JSON.stringify({ identifiers: batch.map(item => item.identifier) }),
+    });
+    const matched = new Set<string>();
+    for (const item of batch) {
+      const card = result.data.find(candidate => cardMatchesIdentifier(candidate, item.identifier));
+      if (!card) continue;
+      const info = await enrichResolvedCard(item.entries[0], card, needsSets, signal, eligibilityFormat);
+      for (const entry of item.entries) resolved.set(entry.id, info);
+      matched.add(JSON.stringify(item.identifier));
+    }
+    // Keep uncommon import / stale-printing fallbacks working without making
+    // every normal card name its own request.
+    for (const item of batch) if (!matched.has(JSON.stringify(item.identifier))) {
+      for (const entry of item.entries) resolved.set(entry.id, await resolveCardFallback(entry, needsSets, signal, eligibilityFormat));
+    }
+  }
+  return resolved;
+}
+
+export async function resolveCard(entry: CardEntry, needsSets: boolean, signal?: AbortSignal, eligibilityFormat?: Format): Promise<CardInfo> {
+  const result = await resolveCards([entry], needsSets, signal, eligibilityFormat);
+  const info = result.get(entry.id);
+  if (!info) throw new Error(`Could not resolve ${entry.name}.`);
+  return info;
 }
 
 const editionsCache = new Map<string, { at: number; promise: Promise<ScryfallCard[]> }>();
@@ -208,10 +283,34 @@ export function loadPrintings(name: string, oracleId?: string): Promise<Scryfall
   return result;
 }
 const oracleCache = new Map<string, { at: number; promise: Promise<CardInfo> }>();
+const oracleQueue = new Map<string, { name: string; resolve: (info: CardInfo) => void; reject: (error: unknown) => void }>();
+let oracleFlushTimer: ReturnType<typeof setTimeout> | undefined, oracleFlushing = false;
+async function flushOracleQueue() {
+  if (oracleFlushing) return;
+  oracleFlushTimer = undefined;
+  oracleFlushing = true;
+  const batch = [...oracleQueue.entries()].slice(0, 75);
+  for (const [key] of batch) oracleQueue.delete(key);
+  try {
+    const entries: CardEntry[] = batch.map(([key, item]) => ({ id: `oracle:${key}`, name: item.name, quantity: 1, zone: 'main' }));
+    const cards = await resolveCards(entries, false);
+    for (const [key, item] of batch) {
+      const info = cards.get(`oracle:${key}`);
+      if (info) item.resolve(info); else item.reject(new Error(`Could not resolve ${item.name}.`));
+    }
+  } catch (error) { for (const [, item] of batch) item.reject(error); }
+  finally {
+    oracleFlushing = false;
+    if (oracleQueue.size && !oracleFlushTimer) oracleFlushTimer = setTimeout(() => { void flushOracleQueue(); }, 25);
+  }
+}
 export function latestOracle(name: string): Promise<CardInfo> {
   const key = normalizeName(name), cached = oracleCache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL) return cached.promise;
-  const promise = request<ScryfallCard>(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: name })}`).then(cardInfo).catch(error => { oracleCache.delete(key); throw error; });
+  const promise = new Promise<CardInfo>((resolve, reject) => {
+    oracleQueue.set(key, { name, resolve, reject });
+    if (!oracleFlushTimer && !oracleFlushing) oracleFlushTimer = setTimeout(() => { void flushOracleQueue(); }, 25);
+  }).catch(error => { oracleCache.delete(key); throw error; });
   oracleCache.set(key, { at: Date.now(), promise }); return promise;
 }
 

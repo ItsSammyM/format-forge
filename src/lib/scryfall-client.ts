@@ -57,24 +57,32 @@ export class ScryfallClient {
     this.remember(url, entry);
     try { await this.runtime.writeCache(url, entry); } catch { /* Keep the memory cache when storage is full. */ }
   }
-  request<T>(raw: string, signal?: AbortSignal): Promise<T> {
+  request<T>(raw: string, signal?: AbortSignal, init: { method?: 'GET' | 'POST'; body?: string } = {}): Promise<T> {
     const endpoint = new URL(raw);
     if (endpoint.origin !== 'https://api.scryfall.com') return Promise.reject(new Error('Invalid Scryfall endpoint.'));
     const url = endpoint.href;
+    const method = init.method ?? 'GET';
+    const cacheUrl = method === 'GET' || !init.body ? url : `${url}?cache=${hashBody(init.body)}`;
     // Metadata calls share work. Abortable searches recheck the cache in the queue.
-    if (!signal && this.pending.has(url)) return this.pending.get(url) as Promise<T>;
-    const run = this.run<T>(url, signal);
-    if (!signal) { this.pending.set(url, run); void run.finally(() => { if (this.pending.get(url) === run) this.pending.delete(url); }).catch(() => {}); }
+    if (!signal && this.pending.has(cacheUrl)) return this.pending.get(cacheUrl) as Promise<T>;
+    const run = this.run<T>(url, cacheUrl, signal, method, init.body);
+    if (!signal) { this.pending.set(cacheUrl, run); void run.finally(() => { if (this.pending.get(cacheUrl) === run) this.pending.delete(cacheUrl); }).catch(() => {}); }
     return run;
   }
-  private async run<T>(url: string, signal?: AbortSignal): Promise<T> {
+  async cachedRequest<T>(raw: string): Promise<T | undefined> {
+    const endpoint = new URL(raw);
+    if (endpoint.origin !== 'https://api.scryfall.com') return undefined;
+    const entry = await this.cached(endpoint.href);
+    return entry ? this.unpack<T>(entry) : undefined;
+  }
+  private async run<T>(url: string, cacheUrl: string, signal?: AbortSignal, method: 'GET' | 'POST' = 'GET', body?: string): Promise<T> {
     signal?.throwIfAborted();
-    const cached = await this.cached(url); signal?.throwIfAborted();
+    const cached = await this.cached(cacheUrl); signal?.throwIfAborted();
     if (cached) return this.unpack<T>(cached);
     this.blocked();
     const job = this.tail.catch(() => {}).then(() => this.runtime.lock(async () => {
       signal?.throwIfAborted();
-      const cached = await this.cached(url); signal?.throwIfAborted();
+      const cached = await this.cached(cacheUrl); signal?.throwIfAborted();
       if (cached) return this.unpack<T>(cached);
       this.blocked();
       this.sync();
@@ -87,7 +95,7 @@ export class ScryfallClient {
       signal?.addEventListener('abort', cancel, { once: true });
       const timer = setTimeout(() => controller.abort(new Error('Scryfall timed out. Try again.')), 15000);
       try {
-        const response = await this.runtime.fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+        const response = await this.runtime.fetch(url, { method, ...(body ? { body } : {}), signal: controller.signal, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) } });
         // Act on the status before reading the body, including non-JSON 429s.
         if (response.status === 429) {
           const now = this.runtime.now(), header = response.headers.get('Retry-After');
@@ -98,11 +106,14 @@ export class ScryfallClient {
         }
         const data = await response.json();
         if (response.ok || response.status === 404) {
-          await this.save(url, { at: this.runtime.now(), status: response.ok ? 200 : 404, data });
+          await this.save(cacheUrl, { at: this.runtime.now(), status: response.ok ? 200 : 404, data });
           // Resolve cards added from search without another ID lookup.
           const cards = Array.isArray(data?.data) ? data.data : data?.object === 'card' ? [data] : [];
           for (const card of cards) if (typeof card?.id === 'string' && typeof card?.name === 'string' && typeof card?.collector_number === 'string') {
             await this.save(`https://api.scryfall.com/cards/${encodeURIComponent(card.id)}`, { at: this.runtime.now(), status: 200, data: card });
+            const faceNames = Array.isArray(card.card_faces) ? card.card_faces.map((face: { name?: string }) => face.name).filter((name: unknown): name is string => typeof name === 'string') : [];
+            for (const name of new Set([card.name, ...faceNames])) await this.save(`https://api.scryfall.com/cards/named?${new URLSearchParams({ exact: name })}`, { at: this.runtime.now(), status: 200, data: card });
+            if (typeof card.set === 'string' && typeof card.collector_number === 'string') await this.save(`https://api.scryfall.com/cards/${encodeURIComponent(card.set)}/${encodeURIComponent(card.collector_number)}`, { at: this.runtime.now(), status: 200, data: card });
           }
         }
         if (!response.ok) throw new ApiError(data.details || 'Scryfall request failed.', response.status);
@@ -110,11 +121,20 @@ export class ScryfallClient {
       } catch (error) {
         if (error instanceof ApiError) throw error;
         if (controller.signal.aborted) throw controller.signal.reason;
+        // A browser CORS failure can hide Scryfall's 429 response and headers.
+        // Pause briefly after opaque fetch failures so retrying cannot become a burst.
+        this.state.until = Math.max(this.state.until, this.runtime.now() + 30000);
+        this.runtime.writeState(this.state);
         throw new Error('Could not reach Scryfall. Check your connection and try again.');
       } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
     }, signal));
     this.tail = job; return job;
   }
+}
+function hashBody(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < value.length; i++) hash = BigInt.asUintN(64, (hash ^ BigInt(value.charCodeAt(i))) * 0x100000001b3n);
+  return hash.toString(16).padStart(16, '0');
 }
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();

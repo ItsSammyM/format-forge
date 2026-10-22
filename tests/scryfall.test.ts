@@ -1,7 +1,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { blankFormat } from '../src/lib/model.ts';
-import { buildSearchQuery, cardInfo, emptyFilters, loadSets, resolveCard, rulesTextTerms, searchCards, filterFormatCards } from '../src/lib/scryfall.ts';
+import { buildSearchQuery, cardInfo, emptyFilters, latestOracle, loadSets, resolveCard, resolveCards, rulesTextTerms, searchCards, filterFormatCards } from '../src/lib/scryfall.ts';
 import type { ScryfallCard } from '../src/lib/scryfall.ts';
 
 const card: ScryfallCard = { id: 'fixture', oracle_id: 'oracle-fixture', name: 'Fixture Card', set: 'dmu', collector_number: '10', type_line: 'Legendary Creature', oracle_text: 'Partner', mana_cost: '{U}', color_identity: ['U'], image_uris: { normal: 'https://cards.scryfall.io/normal/front/example.jpg', small: 'https://cards.scryfall.io/small/front/example.jpg' } };
@@ -98,7 +98,7 @@ test('set catalogue is cached and print-set resolution follows every page', asyn
   const fetch = mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
     const url = new URL(String(input)); times.push(Date.now()); seen.push(url.pathname);
     if (url.pathname === '/sets') return json({ data: [{ code: 'old', name: 'Old', released_at: '2000-01-01' }, { code: 'new', name: 'New', released_at: '2020-01-01' }] });
-    if (url.pathname === '/cards/named') return json(card);
+    if (url.pathname === '/cards/collection') return json({ data: [card], not_found: [] });
     if (url.searchParams.get('page') === '2') return json({ data: [{ ...card, set: 'm21', rarity: 'common' }], has_more: false });
     return json({ data: [{ ...card, rarity: 'rare' }], has_more: true, next_page: 'https://api.scryfall.com/cards/search?q=oracleid:oracle-fixture&unique=prints&page=2' });
   });
@@ -109,6 +109,48 @@ test('set catalogue is cached and print-set resolution follows every page', asyn
     assert.deepEqual(info.printRarities, ['rare', 'common']); assert.deepEqual(info.printSets, ['dmu', 'm21']); assert.equal(info.setsComplete, true);
     assert.ok(info.checkedAt);
     for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 110, 'API calls are paced');
+  } finally { fetch.mock.restore(); }
+});
+
+test('deck metadata resolves in 75-card collection batches and caches the batch', async () => {
+  const entries = Array.from({ length: 80 }, (_, index) => ({
+    id: `batch-entry-${index}`, name: `Batch Fixture ${index}`, quantity: 1, zone: 'main' as const,
+  }));
+  const calls: { method: string; count: number }[] = [];
+  const fetch = mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(new URL(String(input)).pathname, '/cards/collection');
+    const identifiers = JSON.parse(String(init?.body)).identifiers as { name: string }[];
+    calls.push({ method: init?.method ?? 'GET', count: identifiers.length });
+    return json({ data: identifiers.map((identifier, index) => ({
+      ...card, id: `batch-print-${calls.length}-${index}`, name: identifier.name,
+    })), not_found: [] });
+  });
+  try {
+    const resolved = await resolveCards(entries, false);
+    assert.equal(resolved.size, entries.length);
+    assert.deepEqual(calls.map(call => call.count), [75, 5]);
+    assert.ok(calls.every(call => call.method === 'POST'));
+    await resolveCards(entries, false);
+    assert.equal(calls.length, 2, 'the exact same collection batch is served from cache');
+  } finally { fetch.mock.restore(); }
+});
+
+test('card detail Oracle refresh uses the shared cached collection resolver', async () => {
+  let calls = 0;
+  const fetch = mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls++;
+    assert.equal(new URL(String(input)).pathname, '/cards/collection');
+    assert.equal(init?.method, 'POST');
+    const identifiers = JSON.parse(String(init?.body)).identifiers as { name: string }[];
+    return json({ data: identifiers.map((identifier, index) => ({ ...card, id: `preview-${index}`, name: identifier.name })), not_found: [] });
+  });
+  try {
+    const [first, other] = await Promise.all([latestOracle('Preview Fixture'), latestOracle('Other Preview Fixture')]);
+    const second = await latestOracle('Preview Fixture');
+    assert.equal(first.scryfallId, 'preview-0');
+    assert.equal(other.scryfallId, 'preview-1');
+    assert.deepEqual(second, first);
+    assert.equal(calls, 1);
   } finally { fetch.mock.restore(); }
 });
 
@@ -127,7 +169,7 @@ test('closing a deck during card resolution prevents the follow-up printing sear
   let calls = 0;
   const fetch = mock.method(globalThis, 'fetch', async () => {
     calls++; controller.abort();
-    return json({ ...card, id: 'closed-deck-print', oracle_id: 'closed-deck-oracle', name: 'Closing Deck Fixture' });
+    return json({ data: [{ ...card, id: 'closed-deck-print', oracle_id: 'closed-deck-oracle', name: 'Closing Deck Fixture' }], not_found: [] });
   });
   try {
     await assert.rejects(resolveCard({ id: 'closing', name: 'Closing Deck Fixture', zone: 'main', quantity: 1 }, true, controller.signal));

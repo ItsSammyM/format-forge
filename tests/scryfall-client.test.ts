@@ -37,6 +37,14 @@ test('non-JSON 429 stops queued requests and remembers the cooldown across reloa
   assert.equal(f.calls.length, 1);
 });
 
+test('opaque browser fetch failures pause retries to cover CORS-hidden rate limits', async () => {
+  const f = fixture(async () => { throw new TypeError('Failed to fetch'); });
+  await assert.rejects(f.client.request(url('opaque-failure')), /Could not reach Scryfall/);
+  await assert.rejects(f.client.request(url('immediate-retry')), /paused until/);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.client.cooldownUntil - f.now(), 30000);
+});
+
 test('Retry-After seconds and HTTP dates extend the pause, and repeated overages back off', async () => {
   let header = '180';
   const f = fixture(async () => json({}, 429, { 'Retry-After': header }));
