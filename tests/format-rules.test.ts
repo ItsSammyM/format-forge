@@ -107,7 +107,8 @@ test('points and all window visibility preferences survive backups and standalon
   assert.deepEqual(restored.decks[0].layout!.hiddenZones, UI_SECTIONS);
   assert.equal(restored.decks[0].layout!.landsOpen, true);
   assert.deepEqual(parseFormatText(formatText(library.formats[0]))[0], library.formats[0]);
-  assert.throws(() => formatText(createLibrary().formats.find(format => format.id === 'commander')!));
+  const defaultFormat = createLibrary().formats.find(format => format.id === 'commander')!;
+  assert.deepEqual(parseFormatText(formatText(defaultFormat)), [defaultFormat]);
   const invalid = JSON.parse(JSON.stringify(library)); invalid.formats[0].pointed[0].points = -1;
   assert.throws(() => parseLibrary(JSON.stringify(invalid)));
   invalid.formats[0].pointed[0].points = 2; invalid.formats[0].maxPoints = 1.5;

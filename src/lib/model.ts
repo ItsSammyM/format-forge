@@ -82,14 +82,14 @@ export function normalizeFormatLimits(value: { [K in 'maxCards' | 'maxSideboard'
   };
 }
 export function formatText(format: Format): string {
-  if (DEFAULT_FORMAT_IDS.includes(format.id)) throw new Error('Built-in formats are provided by the app. Duplicate one before exporting a custom format.');
   return JSON.stringify({ version: 1, formats: [format], decks: [] }, null, 2);
 }
 export function parseFormatText(raw: string): Format[] {
   const library = parseLibrary(raw);
   const formats = library.formats.filter(format => !DEFAULT_FORMAT_IDS.includes(format.id));
-  if (!formats.length || library.decks.length) throw new Error('Choose a standalone custom format export, not a built-in format or deck-library backup.');
-  return formats;
+  const standaloneDefault = library.formats.length === 1 && DEFAULT_FORMAT_IDS.includes(library.formats[0].id);
+  if ((!formats.length && !standaloneDefault) || library.decks.length) throw new Error('Choose a standalone format export, not a deck-library backup.');
+  return formats.length ? formats : library.formats;
 }
 export function officialLegality(card: Pick<CardEntry, 'info'>, format: Format): string | undefined {
   const key = format.officialFormat;
