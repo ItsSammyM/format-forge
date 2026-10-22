@@ -25,7 +25,11 @@ export function createAuth(env: AuthEnv) {
       deleteUser: {
         enabled: true,
         afterDelete: async user => {
-          await (env.DB as LibraryCleanupDatabase).prepare('DELETE FROM library_chunks WHERE user_id = ?').bind(user.id).run();
+          const database = env.DB as LibraryCleanupDatabase;
+          await Promise.all([
+            database.prepare('DELETE FROM library_chunks WHERE user_id = ?').bind(user.id).run(),
+            database.prepare('DELETE FROM library_records WHERE user_id = ?').bind(user.id).run(),
+          ]);
         },
       },
     },

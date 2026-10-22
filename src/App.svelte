@@ -13,7 +13,7 @@
   import type { AccentColor, BoardView, Deck, Format } from './lib/model';
   import { download, loadLibrary, saveLibrary } from './lib/storage';
   import { DEFAULT_VIEW } from './lib/deck-view';
-  import { authConfigured, clearAccountLibrary, deleteAccount, loadAccountLibrary, loginWithDiscord, logout, saveAccountLibrary, startAuth } from './lib/auth';
+  import { authConfigured, clearAccountLibrary, deleteAccount, loadAccountLibrary, loginWithDiscord, logout, markAccountLibraryLoaded, saveAccountLibrary, startAuth } from './lib/auth';
   import type { AuthSession } from './lib/auth';
 
   const THEME_KEY = 'format-forge.theme';
@@ -48,7 +48,7 @@
   let destructiveAction = $state<'account' | 'data' | null>(null);
   let typedConfirmation = $state('');
   let destructiveBusy = $state(false);
-  let skipCloudSnapshot: string | null = null;
+  let skipCloudSave = false;
   let page = $state<'home' | 'decks' | 'formats'>('home');
   let selectedId = $state<string | null>(null);
   let editing = $state<Format | null>(null);
@@ -101,9 +101,16 @@
   });
 
   $effect(() => {
-    const snapshot = JSON.stringify(library);
-    if (authStatus === 'cloud' && snapshot === skipCloudSnapshot) { skipCloudSnapshot = null; return; }
-    if ((authStatus === 'local' || authStatus === 'error') && writable) storageError = saveLibrary(JSON.parse(snapshot));
+    // Reading these top-level collections/preferences tracks library edits without
+    // serializing the entire library on every cloud autosave.
+    library.decks;
+    library.formats;
+    library.preferredPrintings;
+    library.preferredView;
+    library.theme;
+    library.accentColor;
+    if (authStatus === 'cloud' && skipCloudSave) { skipCloudSave = false; return; }
+    if ((authStatus === 'local' || authStatus === 'error') && writable) storageError = saveLibrary(library);
     if (authStatus === 'cloud' && authSession) {
       if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
       authError = '';
@@ -111,7 +118,7 @@
       cloudSaveTimer = setTimeout(() => {
         const currentSession = authSession;
         if (!currentSession) return;
-        cloudSaveQueue = cloudSaveQueue.catch(() => undefined).then(() => saveAccountLibrary(currentSession, JSON.parse(snapshot)))
+        cloudSaveQueue = cloudSaveQueue.catch(() => undefined).then(() => saveAccountLibrary(currentSession, library))
           .then(() => { if (authSession === currentSession) { authError = ''; accountSaveState = 'saved'; } })
           .catch((error: unknown) => { if (authSession === currentSession) authError = error instanceof Error ? error.message : 'Could not save your account library.'; });
       }, 700);
@@ -148,6 +155,7 @@
           if (!active) return;
           library = firstAccountLibrary;
         }
+        markAccountLibraryLoaded(library);
         writable = true;
         authStatus = 'cloud';
       } catch (error) {
@@ -190,7 +198,7 @@
         await cloudSaveQueue.catch(() => undefined);
         await clearAccountLibrary(authSession);
         const fresh = { ...createLibrary(), theme: 'dark' as const };
-        skipCloudSnapshot = JSON.stringify(fresh);
+        skipCloudSave = true;
         library = fresh;
         saveLibrary(fresh);
       } else {

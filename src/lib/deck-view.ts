@@ -7,7 +7,12 @@ export const SORT_LABELS: Record<CardSort, string> = { name: 'Alphabetical', man
 const rarityOrder = ['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'];
 const colorNames: Record<string, string> = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
 const colors = (value: string[]) => 'WUBRG'.split('').filter(c => value.includes(c));
-const type = (card: CardEntry) => frontTypeLine(card).split(/[—-]/)[0].replace(/\b(?:Basic|Legendary|Snow|World|Ongoing)\s*/g, '').trim() || null;
+const cardTypes = new Set(['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery', 'tribal']);
+function types(card: CardEntry): string[] {
+  const typeWords = frontTypeLine(card).split(/[—-]/)[0].toLowerCase().split(/\s+/);
+  return [...new Set(typeWords.filter(word => cardTypes.has(word)))];
+}
+const type = (card: CardEntry) => types(card)[0] ?? null;
 function value(card: CardEntry, key: CardSort, format?: Format): string | number | null {
   switch (key) {
     case 'name': return card.name.toLowerCase();
@@ -33,6 +38,12 @@ export interface CardGroup { key: string; label: string; cards: CardEntry[]; cou
 function labels(card: CardEntry, key: BoardView['group'], format?: Format): { label: string; order: number; symbols?: string[] }[] {
   const v = key === 'none' ? null : value(card, key, format);
   if (key === 'none') return [{ label: '', order: 0 }];
+  if (key === 'type') {
+    const cardTypeLabels = types(card);
+    return cardTypeLabels.length
+      ? cardTypeLabels.map(label => ({ label: label[0].toUpperCase() + label.slice(1), order: 0 }))
+      : [{ label: 'Unknown', order: 1000 }];
+  }
   if (key === 'tags') return (card.tags?.length ? card.tags : ['Untagged']).map(label => ({ label, order: card.tags?.length ? 0 : 1000 }));
   if (v === null) return [{ label: key === 'price' ? 'Price unavailable' : 'Unknown', order: 1000 }];
   if (key === 'points') return [{ label: `${v} ${v === 1 ? 'point' : 'points'}`, order: Number(v) }];
